@@ -3,13 +3,17 @@
 //
 //   npm run build && node scripts/preview.mjs [outDir]
 import { createServer } from 'node:http';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { extname, join, resolve } from 'node:path';
 
 const root = resolve('_output/chrome-mv3');
 const out = resolve(process.argv[2] ?? 'preview');
 await mkdir(out, { recursive: true });
+// Chromium's profile goes in a fresh temp folder: on the workspace mount, a profile costs each
+// run about 4 seconds.
+const home = await mkdtemp(join(tmpdir(), 'pocket_kneeboard-preview-'));
 
 const now = Date.now();
 const day = 86_400_000;
@@ -110,13 +114,17 @@ const stub = (q) => {
   };
   // Report, to the frame page around this one, how far the sheet's content runs past its bottom
   // and how far the clipboard runs past the panel's right edge.
-  setTimeout(() => {
+  // Reported once the panel has drawn its sheet and its fonts have loaded. Reading the sizes
+  // forces layout. (Headless --dump-dom runs no animation frames, so don't wait for one.)
+  const report = () => {
     const s = document.querySelector('.sheet');
+    if (!s || document.fonts.status !== 'loaded') return setTimeout(report, 50);
     const r = document.querySelector('.board')?.getBoundingClientRect();
-    const report = parent.document.body.dataset;
-    report.overflow = s ? String(s.scrollHeight - s.clientHeight) : 'none';
-    report.wide = r ? String(Math.round(r.right - document.documentElement.clientWidth)) : 'none';
-  }, 1500);
+    const out = parent.document.body.dataset;
+    out.overflow = String(s.scrollHeight - s.clientHeight);
+    out.wide = r ? String(Math.round(r.right - document.documentElement.clientWidth)) : 'none';
+  };
+  addEventListener('load', report);
 </script>`;
 };
 
@@ -149,8 +157,8 @@ const chromium = (args) =>
   new Promise((ok, fail) =>
     execFile(
       'chromium',
-      ['--headless', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--no-proxy-server', '--virtual-time-budget=3000', ...args],
-      { env: { ...process.env, HOME: join(out, '.home') }, maxBuffer: 1 << 24 },
+      ['--headless', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--no-proxy-server', '--virtual-time-budget=1000', ...args],
+      { env: { ...process.env, HOME: home }, maxBuffer: 1 << 24 },
       (err, stdout) => (err ? fail(err) : ok(stdout)),
     ),
   );
@@ -161,27 +169,58 @@ const views = [
   ['schedule-long-2', 'page=schedule-a-2&long=1'],
   ['instructions', 'page=instructions'],
 ];
-let bad = 0;
-for (const [width, height] of [[320, 808], [360, 808], [420, 860], [560, 808]]) {
+// Each Chromium run is mostly waiting, so several run at once. Results print in order.
+const jobs = [];
+// The extremes: the narrowest panel, the widest, and the largest print sizes. 420px at 130% lays
+// out like 323px at 100%. Views in between add nothing once these fit, since the panel scrolls.
+const sizes = [
+  [320, 808, '1'],
+  [420, 860, '1.3'],
+  [560, 808, '1'],
+  [560, 808, '1.5'],
+];
+for (const [width, height, zoom] of sizes) {
   for (const [name, q] of views) {
-    // The print size at 130%: taller than the panel, so it scrolls, but the pages still fit.
-    for (const zoom of width === 420 ? ['1', '1.3'] : width === 560 ? ['1', '1.5'] : ['1']) {
+    jobs.push(async () => {
       const url = `http://127.0.0.1:${port}/frame?w=${width}&h=${height}&${q}&zoom=${zoom}`;
       const win = `--window-size=${Math.max(500, width)},${height}`;
       const dom = await chromium([win, '--dump-dom', url]);
-      const over = /data-overflow="(-?\d+|none)"/.exec(dom)?.[1];
+      // No report (the page wasn't ready in time) counts as a failure, never as a fit.
+      const over = /data-overflow="(-?\d+)"/.exec(dom)?.[1] ?? 'no report';
       const wide = Number(/data-wide="(-?\d+)"/.exec(dom)?.[1] ?? 0);
-      const ok = over !== 'none' && Number(over) <= 0 && wide <= 0;
-      if (!ok) bad++;
-      const wideNote = wide > 0 ? `, ${wide}px too wide` : '';
-      console.log(`${ok ? 'fits    ' : 'OVERFLOW'} ${width}px ${name}${zoom !== '1' ? ` ${zoom}x` : ''} (${over}${wideNote})`);
-      if (width === 420 || !ok || name === 'worksheet') {
+      const ok = over !== 'no report' && Number(over) <= 0 && wide <= 0;
+      if (!ok || name === 'worksheet') {
         await chromium([win, `--screenshot=${join(out, `${name}-${width}${zoom !== '1' ? `-${zoom}x` : ''}.png`)}`, url]);
       }
-    }
+      const wideNote = wide > 0 ? `, ${wide}px too wide` : '';
+      return { ok, line: `${ok ? 'fits    ' : 'OVERFLOW'} ${width}px ${name}${zoom !== '1' ? ` ${zoom}x` : ''} (${over}${wideNote})` };
+    });
   }
 }
-await chromium(['--window-size=500,640', `--screenshot=${join(out, 'short-viewport.png')}`, `http://127.0.0.1:${port}/frame?w=420&h=640&page=worksheet`]);
+// The panel's usual size, and a short one.
+jobs.push(async () => {
+  await chromium(['--window-size=500,860', `--screenshot=${join(out, 'worksheet-420.png')}`, `http://127.0.0.1:${port}/frame?w=420&h=860&page=worksheet`]);
+  return { ok: true };
+});
+jobs.push(async () => {
+  await chromium(['--window-size=500,640', `--screenshot=${join(out, 'short-viewport.png')}`, `http://127.0.0.1:${port}/frame?w=420&h=640&page=worksheet`]);
+  return { ok: true };
+});
+const results = new Array(jobs.length);
+let next = 0;
+const worker = async () => {
+  while (next < jobs.length) {
+    const i = next++;
+    results[i] = await jobs[i]();
+  }
+};
+await Promise.all(Array.from({ length: 6 }, worker));
+let bad = 0;
+for (const r of results) {
+  if (r.line) console.log(r.line);
+  if (!r.ok) bad++;
+}
 server.close();
+await rm(home, { recursive: true, force: true });
 console.log(`screenshots in ${out}${bad ? ` · ${bad} views overflow` : ''}`);
 process.exitCode = bad ? 1 : 0;
