@@ -3,6 +3,7 @@
 
 import { claim, newLedger, recordLanding, unclaim } from '@/lib/ledger';
 import { addTotal } from '@/lib/totals';
+import { replacesSelection } from '@/lib/game';
 import {
   KEYS,
   type AirportInfo,
@@ -121,12 +122,13 @@ async function handle(msg: HookMessage | PanelMessage) {
           .slice(0, MAX_STANDINGS),
       );
       // The world data's figure is our total whenever we hold the airport.
-      const co = (await get<Snapshot>(KEYS.live))?.co;
+      const live = await get<Snapshot>(KEYS.live);
+      const co = live?.co;
       const ours = co && a.held?.co === co ? a.held.v : undefined;
       const totals = await get<TotalsHistory>(KEYS.totals);
       await chrome.storage.local.set({
         [KEYS.airports]: kept,
-        ...(a.selected ? { [KEYS.selected]: { code: a.code, t: a.t, via: a.via, job: a.job, back: a.back } } : {}),
+        ...(replacesSelection(a, live) ? { [KEYS.selected]: { code: a.code, t: a.t, via: a.via, job: a.job, back: a.back } } : {}),
         ...(ours !== undefined ? { [KEYS.totals]: addTotal(totals ?? {}, a.code, a.t, ours) } : {}),
       });
       break;

@@ -1,7 +1,7 @@
 // Readers for the game's save and API replies. Each one picks named fields from untrusted JSON
 // and drops everything else, so no account value can pass through.
 
-import type { AirportKind, AirportStandings, Held, JobInfo, LandingEvent, Place, Snapshot } from './types';
+import type { AirportInfo, AirportKind, AirportStandings, Held, JobInfo, LandingEvent, Place, Snapshot } from './types';
 
 export const SAVE_KEY = 'flash.save.main';
 
@@ -81,6 +81,22 @@ export function airportKind(a: unknown): AirportKind | undefined {
   const rw = Array.isArray(a.rw) ? a.rw : [];
   if (a.sea && rw.length > 0 && rw.every((r) => isObj(r) && r.water === true)) out.seaOnly = true;
   return out;
+}
+
+/** False for a helipad or a seaplane base: a landing there counts for no one. */
+export function holdable(kind: AirportKind | undefined): boolean {
+  return !kind?.pad && !kind?.seaOnly;
+}
+
+/**
+ * Whether a selection should replace the one Part II shows. Not when it's a place nobody can
+ * hold, nor when it's the airport Part I already shows (the current airport, or the destination
+ * in flight), unless it's a round trip, which lands back here.
+ */
+export function replacesSelection(a: AirportInfo, live: Snapshot | undefined): boolean {
+  if (!a.selected || !holdable(a.kind)) return false;
+  const primary = live?.at?.code ?? live?.active?.dest?.code;
+  return a.code !== primary || !!a.back;
 }
 
 /**

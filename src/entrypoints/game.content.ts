@@ -21,6 +21,7 @@ import {
   boardButtonJob,
   cardButtonJob,
   heldFromWorld,
+  holdable,
   landedAt,
   landingResult,
   snapshotFromSave,
@@ -176,7 +177,8 @@ export default defineContentScript({
     const askStandings = (code: string) => {
       const co = last?.co;
       const t = Date.now();
-      if (!co || t - (asked.get(code) ?? 0) < 60_000) return;
+      // Helipads and seaplane bases have no standings.
+      if (!co || !holdable(lookupAirport(code)) || t - (asked.get(code) ?? 0) < 60_000) return;
       asked.set(code, t);
       const q = `code=${encodeURIComponent(code)}&co=${encodeURIComponent(co)}`;
       window.fetch(`/api/standings?${q}`, { cache: 'no-store', credentials: 'omit' }).catch(() => {});

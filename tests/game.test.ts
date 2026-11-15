@@ -7,9 +7,11 @@ import {
   cardButtonJob,
   landingResult,
   parseMoney,
+  replacesSelection,
   snapshotFromSave,
   standingsFromReply,
 } from '../src/lib/game';
+import type { AirportInfo, Snapshot } from '../src/lib/types';
 
 describe('snapshotFromSave', () => {
   const save = {
@@ -105,5 +107,30 @@ describe('replies', () => {
     expect(airportKind({ name: 'H', rw: [], pad: { kind: 'hospital' } })).toEqual({ name: 'H', pad: 'hospital' });
     expect(airportKind({ name: 'S', rw: [{ water: true }], sea: { dock: {} } })).toEqual({ name: 'S', seaOnly: true });
     expect(airportKind({ name: 'A', rw: [{ water: true }, { water: false }], sea: { dock: {} } })).toEqual({ name: 'A' });
+  });
+});
+
+describe('replacesSelection', () => {
+  const sel = (code: string, more: Partial<AirportInfo> = {}): AirportInfo => ({ code, t: 1, selected: true, via: 'map', ...more });
+  const enRoute = { active: { dest: { code: 'EGNM' } }, at: null } as unknown as Snapshot;
+  const parked = { active: null, at: { code: 'EIDW' } } as unknown as Snapshot;
+
+  it('takes another airport', () => {
+    expect(replacesSelection(sel('EGLL'), enRoute)).toBe(true);
+    expect(replacesSelection(sel('EGLL'), undefined)).toBe(true);
+  });
+  it('skips the destination in flight, and the current airport', () => {
+    expect(replacesSelection(sel('EGNM'), enRoute)).toBe(false);
+    expect(replacesSelection(sel('EIDW'), parked)).toBe(false);
+  });
+  it('takes a round trip from the current airport', () => {
+    expect(replacesSelection(sel('EIDW', { via: 'board', back: 'Supply ship' }), parked)).toBe(true);
+  });
+  it('skips helipads and seaplane bases', () => {
+    expect(replacesSelection(sel('XH01', { kind: { pad: 'hospital' } }), enRoute)).toBe(false);
+    expect(replacesSelection(sel('XS01', { kind: { seaOnly: true } }), enRoute)).toBe(false);
+  });
+  it('skips the current airport, which is not a selection', () => {
+    expect(replacesSelection({ code: 'EGLL', t: 1, selected: false }, enRoute)).toBe(false);
   });
 });
