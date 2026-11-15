@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pocket Kneeboard</title>
+  </head>
+  <body>
+    <!-- Filters for ink that looks pressed and drawn by hand. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <filter id="rough">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" />
+        <feDisplacementMap in="SourceGraphic" scale="2.2" />
+      </filter>
+      <filter id="worn">
+        <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="8" result="n" />
+        <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -2.4 0 0 0 1.7" result="holes" />
+        <feComposite in="SourceGraphic" in2="holes" operator="in" result="inked" />
+        <feDisplacementMap in="inked" in2="n" scale="2.5" />
+      </filter>
+    </svg>
+    <main id="app"></main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,14 +1,14 @@
 {
-  "name": "kneeboard-devc",
+  "name": "pocket_kneeboard-devc",
   "dockerComposeFile": "docker-compose.yaml",
   "service": "app",
-  "workspaceFolder": "/workspaces/kneeboard",
+  "workspaceFolder": "/workspaces/pocket_kneeboard",
   "remoteUser": "devc",
   "remoteEnv": {
     "LANG": "en_US.UTF-8",
     "LC_ALL": "en_US.UTF-8",
     "TZ": "${localEnv:TZ}",
-    "PATH": "/workspaces/kneeboard/bin:${containerEnv:PATH}"
+    "PATH": "/workspaces/pocket_kneeboard/bin:${containerEnv:PATH}"
   },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {

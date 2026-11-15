@@ -1,0 +1,35 @@
+# Push a tag such as v0.2.0 to build the extension and publish it as a GitHub release.
+#   git tag v0.2.0 && git push origin v0.2.0
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The tag sets the version, so manifest.json always matches the release.
+      - run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - run: npm run check
+      - run: npm test
+      - run: npm run zip
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip=$(ls .output/*-chrome.zip)
+          gh release create "$GITHUB_REF_NAME" "$zip" \
+            --title "Pocket Kneeboard $GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "Install: download the zip, unzip it, then load the folder at chrome://extensions with Developer mode on (Load unpacked). See the README."

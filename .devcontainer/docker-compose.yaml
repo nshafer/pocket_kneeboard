@@ -1,4 +1,4 @@
-name: kneeboard-devcontainer
+name: pocket_kneeboard-devcontainer
 services:
   app:
     build:
@@ -9,7 +9,7 @@ services:
     # An init process as PID 1 reaps the exited browser processes. `sleep` does not.
     init: true
     volumes:
-      - ..:/workspaces/kneeboard
+      - ..:/workspaces/pocket_kneeboard
       - ${HOME}/.config/git:/mnt/git-config:ro
       - ${HOME}/.config/egress-filter:/mnt/egress-filter:ro
     ports:

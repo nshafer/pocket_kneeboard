@@ -1,0 +1,882 @@
+/* Pocket Kneeboard: a government form on a clipboard, filled in with pen and pencil. */
+
+:root {
+  /* The clipboard's height before zoom: 800-840px, set by fitBoard() in main.ts from the panel's
+     height and the print size. 840px fits a 1080p screen at 100%. */
+  --board-h: 840px;
+  --zoom: 1;
+
+  --board: #6b5440;
+  --board-dark: #4a3a2c;
+  --paper: #f5f1e4;
+  --paper-2: #efe8d4;
+  --shade: #e6dfc8;
+  --ink: #1f2a44; /* printed */
+  --ink-soft: #4b5672;
+  --rule: #9aa3b8;
+  --pen: #1d3c9c; /* ballpoint */
+  --graphite: #34343a; /* No. 2 pencil */
+  --stamp: #b4271f;
+  --shadow: rgba(20, 12, 4, 0.45);
+  --noise-alpha: 0.09;
+  --speck-alpha: 1;
+  /* index-divider card stock */
+  --tab-0: #e8d7a2;
+  --tab-1: #eec3b0;
+  --tab-2: #c9dcc0;
+  --tab-3: #c4d3e3;
+
+  --f-print: 'IBM Plex Sans Condensed', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --f-hand: 'Caveat', 'Bradley Hand', 'Segoe Print', cursive;
+  --f-type: 'Courier Prime', 'Courier New', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* No page background: Chrome's own side panel colour shows around the clipboard, whatever the
+   browser theme. `color-scheme` follows the browser, so the canvas Chrome paints behind the page
+   matches its frame. */
+html {
+  color-scheme: light dark;
+  background: transparent;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  padding: 4px 8px 12px;
+  background: transparent;
+  font: 11px/1.3 var(--f-print);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* --- The board and its clip ---------------------------------------------------------------- */
+
+.board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: var(--board-h);
+  width: var(--board-w, auto);
+  max-width: 600px;
+  zoom: var(--zoom);
+  margin: 0 auto;
+  padding: 28px 10px 0;
+  border-radius: 14px 14px 10px 10px;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.02 0.6' numOctaves='3' seed='4'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>"),
+    radial-gradient(120% 80% at 50% 0%, transparent 40%, var(--board-dark) 100%),
+    var(--board);
+  box-shadow:
+    0 3px 6px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.3);
+}
+
+.clip {
+  position: absolute;
+  z-index: 5;
+  top: 4px;
+  left: 50%;
+  width: 150px;
+  height: 40px;
+  transform: translateX(-50%);
+  border-radius: 10px 10px 16px 16px / 8px 8px 20px 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0 6%, transparent 30%),
+    linear-gradient(90deg, #7d8086, #e4e6ea 18%, #a9adb4 35%, #f4f5f7 52%, #9a9ea5 70%, #d6d8dc 86%, #6f7278);
+  box-shadow:
+    0 4px 6px var(--shadow),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.clip::before,
+.clip::after {
+  /* rivets */
+  content: '';
+  position: absolute;
+  top: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff, #8a8e95 60%, #505359);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+.clip::before {
+  left: 14px;
+}
+.clip::after {
+  right: 14px;
+}
+
+.clip i {
+  /* the lever */
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  width: 64px;
+  height: 18px;
+  transform: translateX(-50%);
+  border: 4px solid #b9bcc2;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -1px 0 #6d7076 inset;
+}
+
+
+/* --- Paper ---------------------------------------------------------------------------------- */
+
+.stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* the edges of the sheets underneath */
+.stack::before,
+.stack::after {
+  content: '';
+  position: absolute;
+  inset: 3px -2px -3px 2px;
+  background: var(--paper-2);
+  box-shadow: 0 2px 4px var(--shadow);
+  transform: rotate(0.6deg);
+}
+.stack::after {
+  inset: 1px 1px -2px -2px;
+  transform: rotate(-0.4deg);
+  background: var(--shade);
+}
+
+.sheet {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 24px 12px 8px;
+  background:
+    radial-gradient(140% 100% at 50% 40%, transparent 55%, var(--paper-2) 100%),
+    var(--paper);
+  box-shadow: 0 6px 12px -4px var(--shadow);
+}
+
+.sheet::before,
+.sheet::after {
+  /* paper fibres and speckle, multiplied so they only ever darken */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+.sheet::before {
+  opacity: var(--speck-alpha);
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4  0 0 0 0 0.33  0 0 0 0 0.2  0 0 0 0.5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.sheet::after {
+  opacity: var(--noise-alpha);
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.04' numOctaves='4' seed='11'/><feColorMatrix values='0 0 0 0 0.3  0 0 0 0 0.25  0 0 0 0 0.1  0 0 0 1.4 -0.3'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>");
+}
+
+.grow {
+  flex: 1;
+}
+
+/* --- Index tabs along the bottom ------------------------------------------------------------ */
+
+.tabs {
+  display: flex;
+  gap: 3px;
+  height: 34px;
+  padding: 0 4px;
+  flex: none;
+}
+
+.tab {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  margin-top: -1px;
+  height: 26px;
+  padding: 3px 4px 0;
+  border-radius: 0 0 7px 7px;
+  background: var(--tab-0);
+  color: var(--ink);
+  font-size: 8.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    inset 0 4px 4px -3px rgba(0, 0, 0, 0.35),
+    0 2px 3px var(--shadow);
+}
+.tab.t1 {
+  background: var(--tab-1);
+}
+.tab.t2 {
+  background: var(--tab-2);
+}
+.tab.t3 {
+  background: var(--tab-3);
+}
+.tab b {
+  font-weight: 700;
+  margin-right: 2px;
+}
+.tab:hover {
+  height: 29px;
+}
+.tab[aria-selected='true'] {
+  z-index: 2;
+  height: 31px;
+  background: var(--paper);
+  box-shadow: 0 3px 4px var(--shadow);
+}
+.tab:focus-visible {
+  outline: 1px dashed var(--pen);
+  outline-offset: -4px;
+}
+
+/* --- Printed form parts ------------------------------------------------------------------- */
+
+.form-head {
+  display: grid;
+  grid-template-columns: 1fr 1.7fr 0.9fr;
+  gap: 8px;
+  align-items: end;
+  padding-bottom: 5px;
+  border-bottom: 3px solid var(--ink);
+  margin-bottom: 6px;
+}
+
+.agency,
+.omb {
+  font-size: 7.5px;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.agency b {
+  font-size: 8px;
+}
+.omb {
+  text-align: right;
+}
+
+.form-title {
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 13.5px;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+}
+.form-title small {
+  display: block;
+  margin-top: 3px;
+  font-size: 7.5px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+.row {
+  display: flex;
+  border: 1px solid var(--ink);
+  margin-top: -1px;
+}
+
+.box {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 32px;
+  padding: 2px 5px 2px;
+  border-left: 1px solid var(--ink);
+}
+.box:first-child {
+  border-left: 0;
+}
+
+.lbl {
+  font-size: 7.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.val {
+  min-height: 21px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.r-pilot .box:nth-child(1) {
+  flex-grow: 1.1;
+}
+.r-pilot .box:nth-child(3) {
+  flex-grow: 1.5;
+}
+.r-ident .box:nth-child(1) {
+  flex: 0 0 28%;
+}
+.r-ident .box:nth-child(3) {
+  flex: 0 0 26%;
+}
+
+.bar {
+  margin: 6px 0 0;
+  padding: 2px 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.bar .sub {
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  text-transform: none;
+}
+
+/* Check boxes */
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.check,
+.claim {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cb {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+.cb .hw.x {
+  position: absolute;
+  left: -2px;
+  top: -14px;
+  font-size: 27px;
+  font-weight: 700;
+  pointer-events: none;
+}
+/* Print size: two small printed keys either side of the typed percentage. */
+.size .val {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.size button {
+  flex: none;
+  width: 22px;
+  height: 18px;
+  border: 1px solid var(--ink);
+  background: var(--shade);
+  font-size: 9px;
+  font-weight: 700;
+}
+.size button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.size .typed {
+  font-size: 10px;
+}
+.size button:focus-visible,
+.claim:focus-visible {
+  outline: 1px dashed var(--pen);
+  outline-offset: 1px;
+}
+
+/* "This was me": a printed check box on a ruled remarks line. */
+.claim {
+  display: flex;
+  height: 22px;
+  width: 100%;
+  text-transform: none;
+  font-size: 9.5px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.claim .hw {
+  font-size: 17px;
+}
+.claim small {
+  font-size: 7.5px;
+  color: var(--ink-soft);
+}
+
+/* Bubbles, filled with a No. 2 pencil */
+.bubbles {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 0 0;
+}
+.group {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  position: relative;
+  padding-bottom: 9px;
+}
+.group small {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 6.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.bubble {
+  aspect-ratio: 1;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+}
+.bubble.full::after,
+.bubble.part::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 47% 53% 50% 48%;
+  background:
+    repeating-linear-gradient(115deg, transparent 0 1px, rgba(255, 255, 255, 0.12) 1px 2px),
+    radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--graphite) 75%, var(--paper)), var(--graphite) 70%);
+  filter: url(#rough);
+}
+.bubble.part::after {
+  clip-path: inset(0 calc(100% - var(--fill)) 0 0);
+}
+.bubbles.small {
+  gap: 4px;
+  max-width: 60%;
+}
+.bubbles.small .group small {
+  font-size: 6px;
+}
+
+/* Worksheet lines */
+.lines {
+  border: 1px solid var(--ink);
+  border-top: 0;
+}
+.line {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 5px 0 0;
+  min-height: 23px;
+  font-size: 9.5px;
+}
+.ln {
+  flex: 0 0 22px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 9px;
+  border-right: 1px solid var(--ink);
+  background: var(--shade);
+}
+.txt {
+  padding: 0 0 4px 2px;
+  min-width: 0;
+  line-height: 1.15;
+}
+.txt .when {
+  font-size: 8px;
+}
+.dots {
+  flex: 1;
+  min-width: 8px;
+  margin-bottom: 6px;
+  border-bottom: 1.5px dotted var(--ink-soft);
+}
+.amt {
+  flex: 0 0 92px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--ink);
+  padding: 0 0 0 0;
+}
+.amt > i {
+  font-style: normal;
+  font-weight: 600;
+  padding-bottom: 3px;
+}
+.line.total {
+  background: color-mix(in srgb, var(--shade) 55%, transparent);
+  font-size: 10px;
+}
+
+/* --- Pen ------------------------------------------------------------------------------------ */
+
+.hw {
+  font-family: var(--f-hand);
+  font-weight: 500;
+  font-size: 20px;
+  line-height: 0.95;
+  color: var(--pen);
+  display: inline-block;
+  transform: translateY(var(--dy, 0)) rotate(var(--r, 0deg));
+  white-space: nowrap;
+  /* Caveat's glyphs lean past their advance width; leave room so the last letter is not cut. */
+  padding: 0 0.2em 0 0.05em;
+}
+.hw.fit {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hw.big {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.hw.remark {
+  white-space: normal;
+  font-size: 18px;
+  line-height: 1;
+}
+.hw.circled {
+  position: relative;
+  font-weight: 700;
+  font-size: 21px;
+  padding: 0 0.25em 0 0.15em;
+}
+.hw.circled::after {
+  content: '';
+  position: absolute;
+  inset: -3px -3px -1px -5px;
+  border: 2px solid var(--pen);
+  border-width: 2px 1.5px 2.4px 1.2px;
+  border-radius: 50% 46% 52% 48% / 55% 50% 48% 52%;
+  transform: rotate(-4deg);
+  filter: url(#rough);
+  opacity: 0.85;
+}
+
+.typed {
+  font-family: var(--f-type);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ink) 85%, #000);
+}
+
+/* --- Stamps and notes ----------------------------------------------------------------------- */
+
+.has-stamp {
+  position: relative;
+}
+.stamp {
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  padding: 3px 10px 2px;
+  border: 3px double var(--stamp);
+  border-radius: 4px;
+  color: var(--stamp);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  transform: rotate(-9deg);
+  opacity: 0.75;
+  filter: url(#worn);
+  pointer-events: none;
+}
+.stamp small {
+  display: block;
+  font-size: 7px;
+  letter-spacing: 0.22em;
+  margin-top: 1px;
+}
+
+.void {
+  margin-top: 4px;
+  color: var(--stamp);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  border: 2px solid var(--stamp);
+  transform: rotate(-1.5deg);
+  filter: url(#worn);
+}
+
+.see {
+  margin: 4px 0 0;
+  font-size: 7.5px;
+  font-style: italic;
+}
+
+.not-started {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--ink-soft);
+  text-align: center;
+}
+.not-started span {
+  display: block;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.4;
+  font-size: 12px;
+}
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 3px;
+  border-top: 1px solid var(--ink);
+  font-size: 7px;
+  letter-spacing: 0.02em;
+}
+
+/* --- Schedule A ----------------------------------------------------------------------------- */
+
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.ledger caption {
+  caption-side: top;
+  text-align: right;
+  font-size: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 2px;
+}
+.ledger th {
+  font-size: 7px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--shade);
+  border: 1px solid var(--ink);
+  padding: 2px 3px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ledger th:nth-child(1) {
+  width: 18%;
+}
+.ledger th:nth-child(3),
+.ledger th:nth-child(4),
+.ledger th:nth-child(5) {
+  width: 14.5%;
+}
+.ledger th:nth-child(6) {
+  width: 13%;
+}
+.ledger td {
+  height: 23px;
+  border-left: 1px solid var(--ink);
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--rule);
+  padding: 0 2px;
+  vertical-align: bottom;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ledger td .hw {
+  font-size: 17px;
+}
+.ledger td.num {
+  text-align: right;
+}
+.ledger tbody tr:last-child td {
+  border-bottom: 1px solid var(--ink);
+}
+.ledger tr.nc td .hw {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.ledger tfoot td {
+  border: 1px solid var(--ink);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  background: var(--shade);
+}
+.meter {
+  display: block;
+  height: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--ink);
+  background:
+    linear-gradient(90deg, var(--graphite) var(--fill), transparent var(--fill)),
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--rule) calc(10% - 1px) 10%);
+  filter: url(#rough);
+}
+
+.remarks-row {
+  margin-top: 6px;
+}
+
+
+/* --- Instructions --------------------------------------------------------------------------- */
+
+.instr {
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.instr h3 {
+  margin: 12px 0 3px;
+  padding-bottom: 1px;
+  border-bottom: 1px solid var(--ink);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.instr p {
+  margin: 0 0 5px;
+  text-align: justify;
+  hyphens: auto;
+}
+.instr ul {
+  margin: 0;
+  padding-left: 14px;
+}
+.instr li {
+  margin-bottom: 4px;
+}
+.instr .small {
+  font-size: 9px;
+}
+.instr .typed {
+  font-size: 9.5px;
+}
+
+/* --- Remarks -------------------------------------------------------------------------------- */
+
+/* Part I's remarks have one ruled line; Part II's take whatever room is left on the page. */
+.row.grow {
+  min-height: 22px;
+}
+.row.grow .box,
+.row.notes .box {
+  display: flex;
+  flex-direction: column;
+}
+.ruled .val {
+  flex: 1;
+  display: block;
+  overflow: hidden;
+  padding-top: 1px;
+  background: repeating-linear-gradient(to bottom, transparent 0 21px, var(--rule) 21px 22px);
+}
+.row.notes .val {
+  flex: none;
+  height: 22px;
+}
+.ruled .hw.remark {
+  display: block;
+  font-size: 18px;
+  line-height: 22px;
+  transform: rotate(var(--r, 0deg));
+  transform-origin: left;
+}
+
+/* --- Narrow clipboards ---------------------------------------------------------------------- */
+
+/* A narrow panel, or large print in an ordinary one: the clipboard is measured after zoom, so
+   both get the same tighter layout and the pages still fit. */
+.board {
+  container-type: inline-size;
+}
+.box.size {
+  flex: 0 0 auto;
+}
+@container (max-width: 360px) {
+  .line {
+    font-size: 8.5px;
+    gap: 2px;
+  }
+  .line.total {
+    font-size: 9px;
+  }
+  .txt .when {
+    font-size: 7px;
+  }
+  .amt {
+    flex-basis: 78px;
+  }
+  .amt .hw {
+    font-size: 18px;
+  }
+  .bar .sub {
+    font-size: 8px;
+  }
+  .r-pilot .box:nth-child(3) {
+    flex-grow: 1.2;
+  }
+  .typed {
+    font-size: 10px;
+  }
+  /* One line each: the week (without its time), part headings and the footnote. */
+  .zulu {
+    display: none;
+  }
+  .bar,
+  .see {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .instr {
+    font-size: 9.5px;
+  }
+}

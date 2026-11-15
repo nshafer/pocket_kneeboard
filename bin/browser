@@ -12,25 +12,28 @@
 # container only.
 #
 # Settings, from the environment:
-#   KNEEBOARD_EXT_DIR   The unpacked extension to load. Default: the first folder of
+#   POCKET_KNEEBOARD_EXT_DIR   The unpacked extension to load. Default: the first folder of
 #                       extension/, dist/, .output/chrome-mv3-dev, .output/chrome-mv3 that has a
 #                       manifest.json.
-#   KNEEBOARD_URL       The page to open. Default: https://pilots.nimblebit.com/
-#   KNEEBOARD_SCREEN    The display size. Default: 1600x1000
-#   KNEEBOARD_GPU       Set to 0 to use the software renderer. Default: the GPU when
+#   POCKET_KNEEBOARD_URL       The page to open. Default: https://pilots.nimblebit.com/
+#   POCKET_KNEEBOARD_SCREEN    The display size. Default: 1600x1000
+#   POCKET_KNEEBOARD_GPU       Set to 0 to use the software renderer. Default: the GPU when
 #                       /dev/dri/renderD128 exists.
+#   POCKET_KNEEBOARD_FLAGS     Extra Chromium flags, split on spaces. Example: --force-dark-mode
 set -euo pipefail
 
-WORKSPACE=/workspaces/kneeboard
-RUN_DIR=/tmp/kneeboard-browser
+WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_DIR=/tmp/pocket_kneeboard-browser
 LOG_DIR="$RUN_DIR/logs"
-PROFILE_DIR="$HOME/.config/kneeboard-chromium"
+PROFILE_DIR="$HOME/.config/pocket_kneeboard-chromium"
+# Before the rename the profile (and the game login in it) was here. start() moves it once.
+OLD_PROFILE_DIR="$HOME/.config/kneeboard-chromium"
 DISPLAY_NUM=99
 VNC_PORT=5900
 NOVNC_PORT=6080
 CDP_PORT=9222
-SCREEN="${KNEEBOARD_SCREEN:-1600x1000}"
-URL="${KNEEBOARD_URL:-https://pilots.nimblebit.com/}"
+SCREEN="${POCKET_KNEEBOARD_SCREEN:-1600x1000}"
+URL="${POCKET_KNEEBOARD_URL:-https://pilots.nimblebit.com/}"
 PROXY="${HTTPS_PROXY:-http://127.0.0.1:3128}"
 
 export DISPLAY=":$DISPLAY_NUM"
@@ -38,8 +41,8 @@ export DISPLAY=":$DISPLAY_NUM"
 mkdir -p "$LOG_DIR"
 
 ext_dir() {
-    if [ -n "${KNEEBOARD_EXT_DIR:-}" ]; then
-        echo "$KNEEBOARD_EXT_DIR"
+    if [ -n "${POCKET_KNEEBOARD_EXT_DIR:-}" ]; then
+        echo "$POCKET_KNEEBOARD_EXT_DIR"
         return
     fi
     local d
@@ -131,7 +134,7 @@ start() {
         --window-position=0,0
         --window-size="$width,$height"
     )
-    if [ -r /dev/dri/renderD128 ] && [ "${KNEEBOARD_GPU:-1}" != 0 ]; then
+    if [ -r /dev/dri/renderD128 ] && [ "${POCKET_KNEEBOARD_GPU:-1}" != 0 ]; then
         # Xvfb has no GPU OpenGL. ANGLE on Vulkan renders on the host GPU through the render node
         # (Mesa RADV), and Chromium copies each frame to the X display.
         flags+=(--use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan
@@ -146,11 +149,21 @@ start() {
         flags+=(--load-extension="$ext")
         echo "  extension: $ext"
     else
-        echo "  extension: none found (see KNEEBOARD_EXT_DIR in bin/browser)"
+        echo "  extension: none found (see POCKET_KNEEBOARD_EXT_DIR in bin/browser)"
+    fi
+    if [ -n "${POCKET_KNEEBOARD_FLAGS:-}" ]; then
+        # shellcheck disable=SC2206 # split on spaces on purpose
+        flags+=(${POCKET_KNEEBOARD_FLAGS})
+        echo "  extra flags: ${POCKET_KNEEBOARD_FLAGS}"
     fi
     # The profile is on the home volume. A lock from an earlier container (another hostname) stops
     # Chromium from starting. Remove it only when no Chromium runs here.
     if ! ps -C chrome -o stat= | grep -qv '^Z'; then
+        # Move the profile from its name before the project was renamed, once, keeping the login.
+        if [ -d "$OLD_PROFILE_DIR" ] && [ ! -e "$PROFILE_DIR" ]; then
+            mv "$OLD_PROFILE_DIR" "$PROFILE_DIR"
+            echo "  profile: moved $OLD_PROFILE_DIR to $PROFILE_DIR"
+        fi
         rm -f "$PROFILE_DIR"/Singleton{Lock,Socket,Cookie}
     fi
     launch chromium chromium "${flags[@]}" "$URL"

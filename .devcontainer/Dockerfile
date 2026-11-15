@@ -42,5 +42,5 @@ RUN usermod -l $USERNAME -d /home/$USERNAME -m ubuntu && \
 
 # Where the repo gets mounted. Must match `workspaceFolder` in devcontainer.json and the bind
 # mount in docker-compose.yaml.
-ARG WORKSPACE_DIR=/workspaces/kneeboard
+ARG WORKSPACE_DIR=/workspaces/pocket_kneeboard
 WORKDIR $WORKSPACE_DIR
