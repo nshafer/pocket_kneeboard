@@ -27,6 +27,28 @@ requests or responses.
   jobs from or to it.
 - The landing report says when a delivery wins an airport for the company.
 
+## 2a. What actually counts as influence (from the game's client code, 2026-11-15)
+
+In the landing-settlement function in `assets/index-*.js` (the one that builds the landing
+report), the job's **base pay** is computed first (`pay = jobPay(job, planeType)`) and kept in
+its own variable. The function returns it as **`value`**, the same field name the
+`/api/standings` list uses. Everything else is kept separate:
+
+- **Bonuses and penalties** (on time/late, IFR/night rating, poor weather, photo, scenic tips,
+  convoy, reputation level, search/survey/fire/crop results) are added only to the pilot's take.
+- **Company share** (10%, or 30% in a company plane), **service fees** (5% of *base* pay) and
+  **fuel and maintenance** are subtracted only from the pilot's take.
+- `stats.earned` goes up by the pilot's take *after* bonuses, company share and fees (fuel is
+  taken off separately). **So `stats.earned` deltas are NOT influence.** This changes §5.2.
+
+Practical rule: **influence = the job's base pay = the first line of the landing report**
+(the job name and its amount). Base pay depends on the plane type you fly the job with.
+Caveat: the server settles landings (`op: "land"` through the outbox) and returns the result.
+The client code mirrors it, but the server's version wasn't visible.
+
+Text rendering: the game measures text with `measureText` and draws it through its own helper,
+which is very likely `fillText`, so the Option 2 canvas hook (§6.2) looks workable.
+
 ## 3. What was found on the page
 
 ### 3.1 Rendering
@@ -101,8 +123,14 @@ In `setItem` wrapper: call the original first, then if `key === MAIN_SAVE_KEY` (
 Debounce identical consecutive snapshots. Also take an initial snapshot from `getItem` at startup.
 
 ### 5.2 Detect a delivery
+**Preferred source (per §2a):** wrap `window.fetch` and read the server's reply to the outbox
+POST whose body has `op: "land"`. Use `result.value` if present, otherwise the amount on
+`result.lines[0]` (job base pay). Get the airport from the request's `code`. Pull only these
+fields, and never log the request's auth headers or account fields.
+
+Fallback (save diffing, less accurate because `stats.earned` includes bonuses and deductions):
 Compare the new snapshot with the previous one:
-- `delta = statsEarned_new − statsEarned_old` (or whichever counter proves exact; see 7).
+- `delta = statsEarned_new − statsEarned_old` (approximate only).
 - `landedAt` = the code whose `visitedN` went up, else `atCode` if it changed, else `atCode`.
 - If `delta > 0` and a landing was detected, append a ledger entry:
   `{ ts: save.t, code: landedAt, pay: delta, jobsDelta, padType? }`.
