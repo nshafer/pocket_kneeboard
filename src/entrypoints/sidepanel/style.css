@@ -751,15 +751,22 @@ footer {
   letter-spacing: 0.04em;
   background: var(--shade);
 }
+/* No #rough filter here: at 8px tall its displacement shreds the 1px ticks and punches holes in
+   the fill, so the meter reads as noise. */
 .meter {
+  position: relative;
   display: block;
   height: 8px;
   margin-bottom: 6px;
   border: 1px solid var(--ink);
-  background:
-    linear-gradient(90deg, var(--graphite) var(--fill), transparent var(--fill)),
-    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--rule) calc(10% - 1px) 10%);
-  filter: url(#rough);
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--rule) calc(10% - 1px) 10%);
+}
+.meter::before {
+  content: '';
+  position: absolute;
+  inset: 1px auto 1px 0;
+  width: min(var(--fill), 100%);
+  background: var(--graphite);
 }
 
 .remarks-row {
@@ -878,5 +885,22 @@ footer {
   }
   .instr {
     font-size: 9.5px;
+  }
+  /* Schedule A: give the number columns room for "250.0" (and a four-figure total). */
+  .ledger th:nth-child(1) {
+    width: 16.5%;
+  }
+  .ledger th:nth-child(3),
+  .ledger th:nth-child(4),
+  .ledger th:nth-child(5) {
+    width: 15.5%;
+  }
+  .ledger th:nth-child(6) {
+    width: 12.5%;
+    padding-inline: 1px;
+    letter-spacing: 0;
+  }
+  .ledger td .hw {
+    font-size: 14px;
   }
 }
