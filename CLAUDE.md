@@ -4,7 +4,7 @@ A Manifest V3 Chrome extension that acts as a companion to the Nimblebit's game 
 
 ### Code
 
-WXT + TypeScript, no UI framework. `npm run build` writes `.output/chrome-mv3`, then run
+WXT + TypeScript, no UI framework. `npm run build` writes `_output/chrome-mv3`, then run
 `bin/browser reload`. `npm test` runs Vitest on `src/lib`. `npm run preview` screenshots the side
 panel with sample data in its own headless Chromium, which is safe while the user plays. It also
 checks every page at 320-560px wide and at 130%/150% print, and fails on any overflow. Headless
@@ -81,7 +81,7 @@ The devcontainer runs Chromium on a virtual display. `bin/browser` controls it, 
   the shifted keysym (`K`, `!`), not `k` or `1`.
 - `bin/browser restart` is necessary after the extension folder changes, because Chromium reads
   `--load-extension` only when it starts. `bin/browser` loads the first of `extension/`, `dist/`,
-  `.output/chrome-mv3-dev` and `.output/chrome-mv3` that has a `manifest.json`. Set
+  `_output/chrome-mv3-dev` and `_output/chrome-mv3` that has a `manifest.json`. Set
   `POCKET_KNEEBOARD_EXT_DIR` to use a different folder.
 - Chromium renders on the host GPU (AMD RX 9070) through `/dev/dri/renderD128` and Vulkan.
   `POCKET_KNEEBOARD_GPU=0 bin/browser restart` uses the software renderer.

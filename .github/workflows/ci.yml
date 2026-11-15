@@ -24,5 +24,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pocket_kneeboard-chrome
-          path: .output/*-chrome.zip
+          path: _output/*-chrome.zip
           if-no-files-found: error

@@ -1,7 +1,7 @@
 # --- Build output ---
 node_modules/
 /dist/
-/.output/
+/_output/
 /.wxt/
 *.zip
 

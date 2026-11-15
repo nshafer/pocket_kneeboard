@@ -13,7 +13,7 @@
 #
 # Settings, from the environment:
 #   POCKET_KNEEBOARD_EXT_DIR   The unpacked extension to load. Default: the first folder of
-#                       extension/, dist/, .output/chrome-mv3-dev, .output/chrome-mv3 that has a
+#                       extension/, dist/, _output/chrome-mv3-dev, _output/chrome-mv3 that has a
 #                       manifest.json.
 #   POCKET_KNEEBOARD_URL       The page to open. Default: https://pilots.nimblebit.com/
 #   POCKET_KNEEBOARD_SCREEN    The display size. Default: 1600x1000
@@ -46,7 +46,7 @@ ext_dir() {
         return
     fi
     local d
-    for d in extension dist .output/chrome-mv3-dev .output/chrome-mv3; do
+    for d in extension dist _output/chrome-mv3-dev _output/chrome-mv3; do
         if [ -f "$WORKSPACE/$d/manifest.json" ]; then
             echo "$WORKSPACE/$d"
             return

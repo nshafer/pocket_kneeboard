@@ -7,7 +7,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { extname, join, resolve } from 'node:path';
 
-const root = resolve('.output/chrome-mv3');
+const root = resolve('_output/chrome-mv3');
 const out = resolve(process.argv[2] ?? 'preview');
 await mkdir(out, { recursive: true });
 

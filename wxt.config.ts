@@ -2,6 +2,7 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   srcDir: 'src',
+  outDir: '_output',
   // WXT drops the underscore from the package name; keep the project's snake_case name.
   zip: { artifactTemplate: 'pocket_kneeboard-{{version}}-{{browser}}.zip' },
   manifest: {

@@ -96,14 +96,14 @@ With Node 24 on your machine:
 
 ```sh
 npm install
-npm run build      # build into .output/chrome-mv3
+npm run build      # build into _output/chrome-mv3
 npm test           # unit tests for the save reader and influence maths
 npm run check      # type check
 npm run preview    # screenshots of the panel with sample data, into preview/ (needs `chromium`)
 npm run zip        # the release zip
 ```
 
-Load `.output/chrome-mv3` with **Load unpacked** (see [Install](#install)). After each build, click
+Load `_output/chrome-mv3` with **Load unpacked** (see [Install](#install)). After each build, click
 the reload arrow on the extension’s card, then reload the game tab.
 
 Releases: push a tag such as `v0.2.0`. GitHub Actions builds the zip, sets the version from the tag

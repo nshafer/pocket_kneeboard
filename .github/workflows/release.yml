@@ -28,7 +28,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          zip=$(ls .output/*-chrome.zip)
+          zip=$(ls _output/*-chrome.zip)
           gh release create "$GITHUB_REF_NAME" "$zip" \
             --title "Pocket Kneeboard $GITHUB_REF_NAME" \
             --generate-notes \
