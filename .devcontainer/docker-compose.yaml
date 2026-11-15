@@ -1,0 +1,28 @@
+name: kneeboard-devcontainer
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: sleep infinity
+    # An init process as PID 1 reaps the exited browser processes. `sleep` does not.
+    init: true
+    volumes:
+      - ..:/workspaces/kneeboard
+      - ${HOME}/.config/git:/mnt/git-config:ro
+      - ${HOME}/.config/egress-filter:/mnt/egress-filter:ro
+    ports:
+      # noVNC: the Chromium screen. Host loopback only. Open http://127.0.0.1:4090/
+      - 127.0.0.1:4090:6080
+      # Do not publish the CDP port (9222). CDP gives full control of the browser and its profile.
+    # The GPU render node only, for Chromium through Vulkan. Not card1: that node controls the host
+    # displays. Remove these two lines to run on the software renderer.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    # Chromium tabs crash with the Docker default of 64 MB.
+    shm_size: 2gb
+    # Secrets, if any. Git ignores the file. It may be absent.
+    env_file:
+      - path: .env
+        required: false

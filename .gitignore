@@ -1,0 +1,20 @@
+# --- Build output ---
+node_modules/
+/dist/
+/.output/
+/.wxt/
+*.zip
+
+# --- Local, machine-specific ---
+local/
+*.local
+*.local.*
+.env
+
+# --- Editors ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+*.sw?
+.DS_Store

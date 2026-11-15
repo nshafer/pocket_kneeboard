@@ -1,0 +1,34 @@
+{
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "version": "2.7.1",
+      "resolved": "ghcr.io/devcontainers/features/common-utils@sha256:e76a6a8a35d1ad824daad1540725e0ec9f8ed2dc00d2850e990a9830013c7d08",
+      "integrity": "sha256:e76a6a8a35d1ad824daad1540725e0ec9f8ed2dc00d2850e990a9830013c7d08"
+    },
+    "ghcr.io/nshafer/devcontainer-features/claude:1": {
+      "version": "1.1.1",
+      "resolved": "ghcr.io/nshafer/devcontainer-features/claude@sha256:b33412fd0cd8b4630dd408b1e5201ed0037712ffd5bd4c1ede2a3f8da0ff96e5",
+      "integrity": "sha256:b33412fd0cd8b4630dd408b1e5201ed0037712ffd5bd4c1ede2a3f8da0ff96e5"
+    },
+    "ghcr.io/nshafer/devcontainer-features/egress-filter:2": {
+      "version": "2.7.0",
+      "resolved": "ghcr.io/nshafer/devcontainer-features/egress-filter@sha256:45eed50239194ed54d9b89850096d1ff2d465a608fb2925d6ac04722d5cefadb",
+      "integrity": "sha256:45eed50239194ed54d9b89850096d1ff2d465a608fb2925d6ac04722d5cefadb"
+    },
+    "ghcr.io/nshafer/devcontainer-features/git-config:2": {
+      "version": "2.0.0",
+      "resolved": "ghcr.io/nshafer/devcontainer-features/git-config@sha256:89fba602110819c6d848f278f73ceb845eccb0c41f6674daf1e223b4c50c1ade",
+      "integrity": "sha256:89fba602110819c6d848f278f73ceb845eccb0c41f6674daf1e223b4c50c1ade"
+    },
+    "ghcr.io/nshafer/devcontainer-features/persist-homedir:1": {
+      "version": "1.2.0",
+      "resolved": "ghcr.io/nshafer/devcontainer-features/persist-homedir@sha256:32cfad5c20ebb92dd5d356b44971a17b6450bb4b34b294bed43556ba5050bd9e",
+      "integrity": "sha256:32cfad5c20ebb92dd5d356b44971a17b6450bb4b34b294bed43556ba5050bd9e"
+    },
+    "ghcr.io/nshafer/devcontainer-features/sandbox:3": {
+      "version": "3.0.0",
+      "resolved": "ghcr.io/nshafer/devcontainer-features/sandbox@sha256:123bbd72cc72598505c53c8046e4a769c5583692ec00d846c373de4637b19002",
+      "integrity": "sha256:123bbd72cc72598505c53c8046e4a769c5583692ec00d846c373de4637b19002"
+    }
+  }
+}

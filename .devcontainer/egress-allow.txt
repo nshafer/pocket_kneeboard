@@ -1,0 +1,10 @@
+# Hosts this project needs beyond the presets in devcontainer.json, one per line.
+# Run `egress-denied` after the game loads to find other hosts it asks for.
+.nimblebit.com
+
+# Google sign-in
+.google.com
+.gstatic.com
+
+# Apple sign-in (untested)
+appleid.apple.com

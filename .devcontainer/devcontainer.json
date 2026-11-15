@@ -1,0 +1,55 @@
+{
+  "name": "kneeboard-devc",
+  "dockerComposeFile": "docker-compose.yaml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/kneeboard",
+  "remoteUser": "devc",
+  "remoteEnv": {
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8",
+    "TZ": "${localEnv:TZ}",
+    "PATH": "/workspaces/kneeboard/bin:${containerEnv:PATH}"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "devc",
+      "installZsh": false,
+      "installOhMyZsh": false,
+      "installOhMyZshConfig": false,
+      "upgradePackages": true
+    },
+    // blockX11 stays on. The browser uses its own display (:99) on an abstract socket only, so the
+    // sandbox does not seal it, and the display that VS Code forwards from the host stays blocked.
+    "ghcr.io/nshafer/devcontainer-features/sandbox:3": {},
+    "ghcr.io/nshafer/devcontainer-features/egress-filter:2": {
+      "presets": "npm,claude,github,githubcopilot"
+    },
+    "ghcr.io/nshafer/devcontainer-features/claude:1": {},
+    "ghcr.io/nshafer/devcontainer-features/git-config:2": {},
+    "ghcr.io/nshafer/devcontainer-features/persist-homedir:1": {}
+  },
+  "securityOpt": [
+    "no-new-privileges"
+  ],
+  // Global container environment for accurate usage of the egress proxy by all processes,
+  // including those started by `docker exec` and VS Code extensions
+  "containerEnv": {
+    "HTTP_PROXY": "http://127.0.0.1:3128",
+    "HTTPS_PROXY": "http://127.0.0.1:3128",
+    "http_proxy": "http://127.0.0.1:3128",
+    "https_proxy": "http://127.0.0.1:3128",
+    "NO_PROXY": "localhost,127.0.0.1,::1",
+    "no_proxy": "localhost,127.0.0.1,::1"
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  // Start the display, noVNC and Chromium on each container start.
+  "postStartCommand": "bin/browser start",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "Anthropic.claude-code",
+        "eamodio.gitlens"
+      ]
+    }
+  }
+}

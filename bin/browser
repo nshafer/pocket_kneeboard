@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# Runs the dev browser in the container: a virtual display, a VNC server, noVNC and Chromium.
+#
+#   browser start     Start each part that is not running. Safe to run again.
+#   browser stop      Stop all parts.
+#   browser restart   Stop, then start. Use it after you add or move the extension folder.
+#   browser status    Show each part, the CDP version and the extension folder.
+#   browser reload    Reload the unpacked extension and the game tab, through CDP.
+#   browser logs      Follow the logs of all parts.
+#
+# You see the screen at http://127.0.0.1:4090/ on the host. CDP is on 127.0.0.1:9222 in the
+# container only.
+#
+# Settings, from the environment:
+#   KNEEBOARD_EXT_DIR   The unpacked extension to load. Default: the first folder of
+#                       extension/, dist/, .output/chrome-mv3-dev, .output/chrome-mv3 that has a
+#                       manifest.json.
+#   KNEEBOARD_URL       The page to open. Default: https://pilots.nimblebit.com/
+#   KNEEBOARD_SCREEN    The display size. Default: 1600x1000
+#   KNEEBOARD_GPU       Set to 0 to use the software renderer. Default: the GPU when
+#                       /dev/dri/renderD128 exists.
+set -euo pipefail
+
+WORKSPACE=/workspaces/kneeboard
+RUN_DIR=/tmp/kneeboard-browser
+LOG_DIR="$RUN_DIR/logs"
+PROFILE_DIR="$HOME/.config/kneeboard-chromium"
+DISPLAY_NUM=99
+VNC_PORT=5900
+NOVNC_PORT=6080
+CDP_PORT=9222
+SCREEN="${KNEEBOARD_SCREEN:-1600x1000}"
+URL="${KNEEBOARD_URL:-https://pilots.nimblebit.com/}"
+PROXY="${HTTPS_PROXY:-http://127.0.0.1:3128}"
+
+export DISPLAY=":$DISPLAY_NUM"
+
+mkdir -p "$LOG_DIR"
+
+ext_dir() {
+    if [ -n "${KNEEBOARD_EXT_DIR:-}" ]; then
+        echo "$KNEEBOARD_EXT_DIR"
+        return
+    fi
+    local d
+    for d in extension dist .output/chrome-mv3-dev .output/chrome-mv3; do
+        if [ -f "$WORKSPACE/$d/manifest.json" ]; then
+            echo "$WORKSPACE/$d"
+            return
+        fi
+    done
+}
+
+running() {
+    local pidfile="$RUN_DIR/$1.pid"
+    [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+launch() {
+    local name="$1"
+    shift
+    if running "$name"; then
+        echo "  $name: already running (pid $(cat "$RUN_DIR/$name.pid"))"
+        return
+    fi
+    setsid nohup "$@" >>"$LOG_DIR/$name.log" 2>&1 </dev/null &
+    echo $! >"$RUN_DIR/$name.pid"
+    echo "  $name: started (pid $!)"
+}
+
+wait_for() {
+    local what="$1" check="$2" i
+    for i in $(seq 1 50); do
+        if eval "$check" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    echo "  $what: did not become ready. Read $LOG_DIR/." >&2
+    return 1
+}
+
+novnc_web() {
+    # A web root with an index page that opens the viewer, so the plain URL works.
+    local web="$RUN_DIR/novnc"
+    if [ ! -f "$web/index.html" ]; then
+        mkdir -p "$web"
+        cp -rs /usr/share/novnc/. "$web/"
+        cat >"$web/index.html" <<'EOF'
+<!doctype html><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&amp;resize=scale&amp;reconnect=1">
+EOF
+    fi
+    echo "$web"
+}
+
+start() {
+    echo "==> browser start"
+
+    # The display. -nolisten unix keeps only the abstract socket (Linux), so nothing appears in
+    # /tmp/.X11-unix, and the sandbox feature keeps that folder sealed for the host display.
+    launch xvfb Xvfb ":$DISPLAY_NUM" -screen 0 "${SCREEN}x24" -nolisten tcp -nolisten unix
+    wait_for xvfb "test -e /tmp/.X$DISPLAY_NUM-lock"
+    sleep 0.5
+
+    launch x11vnc x11vnc -display ":$DISPLAY_NUM" -localhost -rfbport "$VNC_PORT" \
+        -forever -shared -nopw -quiet -noxdamage
+    wait_for x11vnc "bash -c '</dev/tcp/127.0.0.1/$VNC_PORT'"
+
+    # 0.0.0.0 in the container, because Docker publishes the port from the container address.
+    # docker-compose.yaml publishes it on the host loopback only.
+    launch novnc websockify --web "$(novnc_web)" "0.0.0.0:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"
+
+    local ext width height
+    ext="$(ext_dir)"
+    width="${SCREEN%x*}"
+    height="${SCREEN#*x}"
+    local -a flags=(
+        --user-data-dir="$PROFILE_DIR"
+        # Binds to 127.0.0.1. Do not add --remote-debugging-address.
+        --remote-debugging-port="$CDP_PORT"
+        # The egress firewall blocks direct connections. Everything goes through the filter proxy.
+        --proxy-server="$PROXY"
+        # Chromium's own sandbox needs user namespaces, and the Docker seccomp profile blocks them.
+        # The container is the sandbox. The browser goes to one site.
+        --no-sandbox
+        --no-first-run
+        --no-default-browser-check
+        --disable-background-networking
+        --disable-component-update
+        --disable-sync
+        --window-position=0,0
+        --window-size="$width,$height"
+    )
+    if [ -r /dev/dri/renderD128 ] && [ "${KNEEBOARD_GPU:-1}" != 0 ]; then
+        # Xvfb has no GPU OpenGL. ANGLE on Vulkan renders on the host GPU through the render node
+        # (Mesa RADV), and Chromium copies each frame to the X display.
+        flags+=(--use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan
+            --ignore-gpu-blocklist)
+        echo "  gpu: /dev/dri/renderD128 (Vulkan)"
+    else
+        # The software renderer. This keeps WebGL working without a GPU.
+        flags+=(--enable-unsafe-swiftshader)
+        echo "  gpu: none (software renderer)"
+    fi
+    if [ -n "$ext" ]; then
+        flags+=(--load-extension="$ext")
+        echo "  extension: $ext"
+    else
+        echo "  extension: none found (see KNEEBOARD_EXT_DIR in bin/browser)"
+    fi
+    # The profile is on the home volume. A lock from an earlier container (another hostname) stops
+    # Chromium from starting. Remove it only when no Chromium runs here.
+    if ! ps -C chrome -o stat= | grep -qv '^Z'; then
+        rm -f "$PROFILE_DIR"/Singleton{Lock,Socket,Cookie}
+    fi
+    launch chromium chromium "${flags[@]}" "$URL"
+    wait_for chromium "curl -sf --noproxy '*' http://127.0.0.1:$CDP_PORT/json/version"
+
+    echo "==> screen: http://127.0.0.1:4090/ on the host"
+}
+
+stop() {
+    echo "==> browser stop"
+    local name pid
+    for name in chromium novnc x11vnc xvfb; do
+        if running "$name"; then
+            pid="$(cat "$RUN_DIR/$name.pid")"
+            kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+            for _ in $(seq 1 25); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.2
+            done
+            echo "  $name: stopped"
+        fi
+        rm -f "$RUN_DIR/$name.pid"
+    done
+}
+
+status() {
+    local name
+    for name in xvfb x11vnc novnc chromium; do
+        if running "$name"; then
+            echo "  $name: running (pid $(cat "$RUN_DIR/$name.pid"))"
+        else
+            echo "  $name: stopped"
+        fi
+    done
+    echo "  extension: $(ext_dir || true)"
+    echo "  profile: $PROFILE_DIR"
+    curl -sf --noproxy '*' "http://127.0.0.1:$CDP_PORT/json/version" | jq -r '"  cdp: " + .Browser' ||
+        echo "  cdp: not answering"
+}
+
+case "${1:-}" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop && start ;;
+    status) status ;;
+    reload) exec node "$WORKSPACE/bin/cdp.mjs" reload "${@:2}" ;;
+    logs) exec tail -n 50 -F "$LOG_DIR"/*.log ;;
+    *)
+        sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'
+        exit 2
+        ;;
+esac
