@@ -727,7 +727,7 @@ function backupForm(): string {
     </div>
     <p class="ragged">To restore, choose a backup file, or paste one below.</p>
     <div class="buttons">
-      <label class="btn">Choose file…<input type="file" accept=".json,application/json" data-restore-file hidden></label>
+      <button type="button" class="btn" data-backup="choose">Choose file…</button>
     </div>
     <textarea data-keep="paste" rows="3" spellcheck="false" placeholder="Paste a backup here" aria-label="Pasted backup">${esc(kept.get('paste') ?? '')}</textarea>
     <div class="buttons"><button type="button" class="btn" data-backup="paste">Read pasted backup</button></div>
@@ -1134,8 +1134,27 @@ function stage(text: string) {
   }
 }
 
+/**
+ * The file picker for a backup to restore. It lives outside #app: the panel redraws #app whenever
+ * the records change, often while the picker's dialog is open, and an input that was redrawn away
+ * never reports the file chosen.
+ */
+const restoreFile = Object.assign(document.body.appendChild(document.createElement('input')), {
+  type: 'file',
+  accept: '.json,application/json',
+  hidden: true,
+});
+restoreFile.addEventListener('change', async () => {
+  const file = restoreFile.files?.[0];
+  restoreFile.value = ''; // so choosing the same file again reports it again
+  if (!file) return;
+  if (file.size > 20_000_000) return redraw('That file is too big to be a backup.', true);
+  stage(await file.text());
+});
+
 async function backupAction(what: string) {
   try {
+    if (what === 'choose') return restoreFile.click();
     if (what === 'download') {
       const { text, records } = await backupText();
       const name = `pocket-kneeboard-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -1185,14 +1204,6 @@ async function backupAction(what: string) {
     redraw(e instanceof Error ? e.message : String(e), true);
   }
 }
-
-document.addEventListener('change', async (e) => {
-  const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-restore-file]');
-  const file = input?.files?.[0];
-  if (!file) return;
-  if (file.size > 20_000_000) return redraw('That file is too big to be a backup.', true);
-  stage(await file.text());
-});
 
 document.addEventListener('keydown', (e) => {
   const tab = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
