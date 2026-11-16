@@ -24,6 +24,18 @@ the exact size. Don't trust `--window-size` alone for narrow layouts.
 The user decided that the extension must not draw on or change the game's UI, not even with an
 overlay. Everything goes in the side panel. An opt-in, off-by-default toggle might come later.
 
+### Releases
+
+Do these steps when the user asks for a release:
+
+1. Bump `version` in `package.json`.
+2. Add a section for that version at the top of `CHANGELOG.md`, written for players.
+3. Commit both together as "Pocket Kneeboard X.Y.Z".
+4. Tag that commit with an annotated tag: `git tag -a vX.Y.Z -m "Pocket Kneeboard X.Y.Z"`.
+
+Pushing the tag runs `.github/workflows/release.yml`, which publishes a GitHub release. Ask the
+user before you push.
+
 ### What the game exposes (client bundle, 2026-11-15)
 
 - Save: `flash.save.main`, `{v, t, data}`. `data.active.job` = `{id, from, to, toName, kind, pay,
@@ -59,6 +71,30 @@ overlay. Everything goes in the side panel. An opt-in, off-by-default toggle mig
 - The user allowed the extension to send that `/api/standings` GET itself, for the airport open on
   the map and the current airport, at most once a minute per airport. Any other request needs the
   user's approval first.
+
+### Your flights from other devices (save, 2026-11-16)
+
+Every `/api/career` reply copies the career into the save, so this browser's save reflects flights
+on any device as soon as the game here syncs.
+
+- `data.visited[code]` = `{n, t, c, name, hh}`. `n` counts your landings there from every device,
+  and `t` is the first visit. `hh` looks like your total flight hours (`data.stats.hours`) at your
+  last landing there.
+- `data.stats` holds running totals: `jobs`, `earned` (net pay), `hours`, `byKind`, `earnedBy`
+  and more.
+- `data.flown` holds your last 40 job keys, such as `EIDW-997099-h00`. They have no destination
+  or pay.
+- `data.company` (the user approved reading it, 2026-11-16) holds:
+  - `members[pid]` = `{cs, rank, jobs, earned, at, seen, gave, brought, …}`. `at` is where that
+    member is now.
+  - `applied` maps `"pid:jobId"` to a time for each member's company job, and covers about 72
+    hours. Keys that end in `:fee:CODE` are landing fees from other pilots at airports the company
+    holds.
+  - `book` is an hourly ledger covering 24 hours, `{h, k: fee|fly|net, of, amt, n}`.
+  - `log` is `[{t, text}]` ("X put in $25,000", "X bought a …"), and `taken` lists airports
+    gained or lost.
+  - None of these give a member's pay or destination per landing.
+- `data.company.code` is the company's invite code. Never print or log it.
 
 ### The dev browser
 
@@ -105,7 +141,7 @@ takes effect when the container restarts. Ask the user before you add a host.
 
 - Never read, print, log or send `flash.auth`, `flash.installId`, `flash.install`, or any value
   that looks like a token. This applies to MCP scripts and console output too. Read only the save
-  keys that the plan names.
+  keys that the plan or this file names.
 - The extension is read-only toward the game. Never write to the game's localStorage, and never
   change its requests or responses.
 - Do not publish the CDP port or add `--remote-debugging-address`. CDP gives full control of the
