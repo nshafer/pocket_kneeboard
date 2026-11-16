@@ -13,8 +13,9 @@ All notable changes to Pocket Kneeboard. Versions follow [Semantic Versioning](h
 - **Settings**, behind the gear tab: Print size and the landing log's URL moved here, and
   **Backup and restore** saves all your records as a file or to the clipboard, and loads them back,
   for example into another browser.
-- A page too long for one sheet continues on another. Turn it at the curled corner, where "next"
-  or "prev" is scribbled with an arrow.
+- A page too long for one sheet continues on another, under the same heading and with the same
+  remarks. Turn it at the curled corner, where "next" or "prev" is scribbled with an arrow. Each
+  tab opens on the sheet you left it on.
 
 ### Changed
 
@@ -24,6 +25,12 @@ All notable changes to Pocket Kneeboard. Versions follow [Semantic Versioning](h
 - Schedule A is now **Airports**.
 - The tabs have no numbers, and each page is numbered within its tab: "Page 1", or "Page 2 of 4".
 - The bubbles a job would fill are shaded in pencil.
+- Remarks are written smaller, and say only what's about the page. A list's remarks get as many
+  lines as they need, and its table fills the rest of the sheet with blank lines.
+- What each mark (such as `*`, `+?` and `≈`) and column means is on the Help page, under
+  **Marks and columns**.
+- Help explains how formation flights count: each pilot's own base pay, with the convoy bonus in
+  Net only.
 - In the air, your origin's standings are read again if you last landed there on another device.
 
 ### Fixed
@@ -33,7 +40,15 @@ All notable changes to Pocket Kneeboard. Versions follow [Semantic Versioning](h
 - The landing log script reads an airport's total again when it hasn't risen yet, for up to 15
   minutes. Before, many landings were logged as adding $0.
   `server/repair_zero_landings.py` fixes a log written before then: those landings become
-  "pay not known", and landings whose combined rise you know can share it.
+  "pay not known", and landings whose combined rise you know can share it. Give it every company
+  with `--co`, once for each.
+- Fleet's remarks were cut off when the list filled the sheet.
+- A landing of yours could show in the remarks as a rise that wasn't yours ("$0 logged as mine"),
+  when the game showed the new total before the landing's report arrived. From a game tab in the
+  background, the report can come many minutes after the touchdown.
+- Restoring a backup did nothing the first time you chose a file.
+- A backup copied through a clipboard that drops some characters (such as a remote desktop's) no
+  longer breaks, and a pasted backup that lost characters says so.
 
 ## 0.2.0 (2026-11-16)
 
