@@ -704,6 +704,11 @@ button {
   font-size: 7.5px;
   font-style: italic;
 }
+/* The Flight page is a single sheet, so its note sits against the footer, with no room kept for
+   turning the page. */
+.see + footer {
+  margin-top: 0;
+}
 
 .not-started {
   margin: 6px 0 0;
