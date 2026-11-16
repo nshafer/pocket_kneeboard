@@ -37,6 +37,24 @@ describe('unlogged', () => {
     expect(unlogged(egac, l, 'EGAC', now)).toMatchObject({ rise: 1_970, mine: 1_970, others: 0 });
   });
 
+  // Same host, later: the total with the landing in it was seen 8 min after takeoff, and the
+  // reply to the landing came 8.5 min after that.
+  it('places a landing anywhere between its takeoff and its reply', () => {
+    const egaa: TotalsHistory = {
+      EGAA: [
+        { t: at('2026-11-15T02:55:44Z'), v: 34_115 },
+        { t: at('2026-11-15T19:04:18Z'), v: 38_915 },
+        { t: at('2026-11-15T19:14:34Z'), v: 41_145 },
+      ],
+    };
+    let l = newLedger(snap, 0);
+    const land = (t: string, t0: string, value: number, id: string) =>
+      (l = recordLanding(l, { t: at(t), t0: at(t0), pid: 'p1', code: 'EGAA', job: { id, to: 'EGAA' }, result: { value } }, now));
+    land('2026-11-15T17:52:13Z', '2026-11-15T17:32:57Z', 4_800, 'A');
+    land('2026-11-15T19:23:01Z', '2026-11-15T19:06:30Z', 2_230, 'B');
+    expect(unlogged(egaa, l, 'EGAA', now)).toMatchObject({ rise: 7_030, mine: 7_030, others: 0 });
+  });
+
   it('leaves out a landing near the window that the rise has no room for', () => {
     // The first sighting already included it (EGOQ, same backup), and a later one isn't in yet.
     const h2: TotalsHistory = {

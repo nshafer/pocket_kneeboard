@@ -38,21 +38,22 @@ export interface Unlogged {
 }
 
 /**
- * How far apart a landing's time and the first sighting of the total it raised can be. A landing
- * is timed when the game's reply to it arrives, and the game's figures can show the new total a
- * minute or more before that (or a stale one after it), so the order of the two isn't reliable.
+ * A landing is timed when the game's reply to it arrives, which can be many minutes after the
+ * touchdown that raised the total (the game sends it late from a tab in the background). The
+ * touchdown lies between takeoff (`t0`) and that reply. Without a takeoff time, it's taken to lie
+ * within SKEW before the reply.
  */
 export const SKEW = 5 * 60_000;
+const DAY = 86_400_000;
 
 /**
  * How this week's rise in our total at `code` splits between logged deliveries and the rest.
  *
  * The rise runs from the first sighting this week to the highest. Within a week the total only
- * rises, so a lower figure after a higher one is a stale reply, and is passed over. A landing
- * between the two counts as mine. One within SKEW of the first sighting, or just after the highest,
- * counts only while the rise still has room for it: the game can show a total a minute or more
- * before the reply to the landing that raised it arrives, so the first sighting may already
- * include a landing timed after it, and the highest one a landing timed just after it.
+ * rises, so a lower figure after a higher one is a stale reply, and is passed over. A landing whose
+ * touchdown certainly lies between the two counts as mine. One whose takeoff-to-reply span reaches
+ * across either sighting may or may not be in it, and counts only while the rise still has room
+ * for it.
  */
 export function unlogged(hist: TotalsHistory, ledger: Ledger | undefined, code: string, now: number): Unlogged | undefined {
   const week = weekStart(now);
@@ -63,14 +64,23 @@ export function unlogged(hist: TotalsHistory, ledger: Ledger | undefined, code: 
   const rise = Math.max(0, to.v - from.v);
   let mine = 0;
   let claimed = 0;
-  const edge: number[] = [];
+  const maybe: number[] = [];
   for (const e of ledger?.entries ?? []) {
     if (e.code !== code || !e.counted || e.t < week) continue;
-    if (e.src === 'manual' ? e.t > from.t && e.t <= to.t : e.t > from.t + SKEW && e.t <= to.t) {
-      mine += e.pay;
-      if (e.src === 'manual') claimed += e.pay;
-    } else if (e.src !== 'manual' && e.t > from.t - SKEW && e.t <= to.t + SKEW) edge.push(e.pay);
+    if (e.src === 'manual') {
+      // A claim is timed at the sighting it was made against.
+      if (e.t > from.t && e.t <= to.t) {
+        mine += e.pay;
+        claimed += e.pay;
+      }
+      continue;
+    }
+    // The earliest the touchdown could have been.
+    const lo = e.t0 !== undefined && e.t0 < e.t && e.t - e.t0 < DAY ? e.t0 : e.t - SKEW;
+    if (e.t <= from.t || lo >= to.t) continue; // before the first sighting, or after the highest
+    if (lo >= from.t && e.t <= to.t) mine += e.pay;
+    else maybe.push(e.pay);
   }
-  for (const pay of edge) if (mine + pay <= rise) mine += pay;
+  for (const pay of maybe) if (mine + pay <= rise) mine += pay;
   return { from, to, rise, mine, claimed, others: Math.max(0, rise - mine) };
 }
