@@ -80,8 +80,14 @@ const data = {
       ],
     },
   },
-  // NSA's total at EGNH rose $26,000 today; the ledger logged $18,400 of it.
+  // NSA's total at EGNH rose $26,000 today; the ledger logged $18,400 of it. At EIDW (Part I) it
+  // rose $17,010 in the last hour with nothing logged: a flight on another device. That remark
+  // wraps and adds a "This was me" line, the most Part I's remarks usually hold.
   'kb:totals': {
+    EIDW: [
+      { t: now - 60 * 60_000, v: 260_090 },
+      { t: now - 4 * 60_000, v: 277_100 },
+    ],
     EGNH: [
       { t: now - 5 * 3_600_000, v: 18_000 },
       { t: now - 2 * 60_000, v: 44_000 },

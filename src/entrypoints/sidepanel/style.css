@@ -825,9 +825,20 @@ footer {
   padding-top: 1px;
   background: repeating-linear-gradient(to bottom, transparent 0 21px, var(--rule) 21px 22px);
 }
+/* Part I's remarks: one ruled line (two when there's a rise both to claim and to give back),
+   so a long remark ends in "…" instead of wrapping out of sight. */
 .row.notes .val {
   flex: none;
-  height: 22px;
+  min-height: 22px;
+}
+.row.notes .hw.remark,
+.row.notes .claim small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row.notes .claim small {
+  min-width: 0;
 }
 .ruled .hw.remark {
   display: block;

@@ -89,14 +89,12 @@ export function holdable(kind: AirportKind | undefined): boolean {
 }
 
 /**
- * Whether a selection should replace the one Part II shows. Not when it's a place nobody can
- * hold, nor when it's the airport Part I already shows (the current airport, or the destination
- * in flight), unless it's a round trip, which lands back here.
+ * Whether a selection should replace the one Part II shows: any airport someone can hold, even
+ * the one Part I shows (the user asked for Part II to follow every selection). Not a helipad or
+ * a seaplane base, which leave the previous selection in place.
  */
-export function replacesSelection(a: AirportInfo, live: Snapshot | undefined): boolean {
-  if (!a.selected || !holdable(a.kind)) return false;
-  const primary = live?.at?.code ?? live?.active?.dest?.code;
-  return a.code !== primary || !!a.back;
+export function replacesSelection(a: AirportInfo): boolean {
+  return !!a.selected && holdable(a.kind);
 }
 
 /**

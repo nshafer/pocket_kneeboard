@@ -128,7 +128,7 @@ async function handle(msg: HookMessage | PanelMessage) {
       const totals = await get<TotalsHistory>(KEYS.totals);
       await chrome.storage.local.set({
         [KEYS.airports]: kept,
-        ...(replacesSelection(a, live) ? { [KEYS.selected]: { code: a.code, t: a.t, via: a.via, job: a.job, back: a.back } } : {}),
+        ...(replacesSelection(a) ? { [KEYS.selected]: { code: a.code, t: a.t, via: a.via, job: a.job, back: a.back } } : {}),
         ...(ours !== undefined ? { [KEYS.totals]: addTotal(totals ?? {}, a.code, a.t, ours) } : {}),
       });
       break;

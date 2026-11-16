@@ -173,13 +173,28 @@ const clock = (t: number, now: number) => {
  * the company total's rise this week and how much of it this browser logged, with "This was me"
  * to claim the rest; the last flight here; who from the company landed here; missed landings.
  */
-function partRemarks(s: State, code: string | undefined, now: number, extra: string[] = []) {
+/**
+ * The remarks for one airport. `brief` is for Part I, which has room for one ruled line: a rise
+ * to claim becomes the "This was me" box itself, with the reason in small print, and otherwise
+ * only the first remark shows.
+ */
+function partRemarks(s: State, code: string | undefined, now: number, extra: string[] = [], brief = false) {
   if (!code) return '';
   const us = s.live?.coTag ?? 'Company';
   const items: string[] = [];
   const note = (t: string, i: number) => hand(t, 'remark', `remark${i}`);
 
   const u = unlogged(s.totals, s.ledger, code, now);
+  if (brief && u && u.rise > 0 && (u.others > 0 || u.claimed > 0)) {
+    const why = `(${esc(us)} +$${money(u.rise)} here since ${clock(u.from.t, now)}, $${money(u.mine)} logged)`;
+    if (u.others > 0) {
+      items.push(`<button type="button" class="claim" data-claim="${esc(code)}">${cb(false)}This was me ${hand(`$${money(u.others)}`, '', 'claim')} <small>${why}</small></button>`);
+    }
+    if (u.claimed > 0) {
+      items.push(`<button type="button" class="claim" data-unclaim="${esc(code)}">${cb(true)}This was me ${hand(`$${money(u.claimed)}`, '', 'claimed')} <small>(untick to take it back)</small></button>`);
+    }
+    return items.join('');
+  }
   if (u && u.rise > 0) {
     const notMine = u.others > 0 ? `, $${money(u.others)} not` : '';
     items.push(note(`${us} here +$${money(u.rise)} since ${clock(u.from.t, now)}: $${money(u.mine)} logged as mine${notMine}.`, 0));
@@ -201,7 +216,7 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
   const unseen = unseenLandings(s.ledger, s.live)[code];
   if (unseen) items.push(note(`${unseen} landing${unseen > 1 ? 's' : ''} here I didn’t see (other device?).`, 22));
   if (!items.length && s.live) items.push(note('No flights logged here yet.', 23));
-  return items.join('');
+  return (brief ? items.slice(0, 1) : items).join('');
 }
 
 function airportPart(s: State, code: string | undefined, num: { n: number }, now: number, compact = false, sel?: Selected) {
@@ -268,7 +283,7 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
   else if (t.noCredit) extra.push(`Plus $${money(t.noCredit)} in ${t.why ?? 'pad'} jobs here, which count for no one.`);
 
   const r = n();
-  html += `<div class="row ${compact ? 'grow' : 'notes'}">${box(r, 'Remarks', partRemarks(s, code, now, extra), 'remarks ruled')}</div>`;
+  html += `<div class="row ${compact ? 'grow' : 'notes'}">${box(r, 'Remarks', partRemarks(s, code, now, extra, !compact), 'remarks ruled')}</div>`;
   return html;
 }
 
@@ -276,9 +291,8 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
   const l = s.live;
   const enRoute = !l?.at && !!l?.active?.dest;
   const primary = l?.at?.code ?? l?.active?.dest?.code;
-  // A selection of the current airport shows only for a round trip, which lands back here.
-  const fresh = s.selected && now - s.selected.t < SELECTED_FOR ? s.selected : undefined;
-  const sel = fresh && (fresh.code !== primary || (fresh.back && fresh.job)) ? fresh : undefined;
+  // Part II follows the latest selection, even when it's the airport Part I shows.
+  const sel = s.selected && now - s.selected.t < SELECTED_FOR ? s.selected : undefined;
   const selVia = sel?.back ? 'round trip on the job board' : sel?.via === 'board' ? 'on the job board' : 'on the map';
   const partI = enRoute
     ? `Part I — Destination <span class="sub">(en route from ${esc(l?.active?.from?.code ?? '…')})</span>`
