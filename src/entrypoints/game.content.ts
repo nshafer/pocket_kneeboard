@@ -205,7 +205,7 @@ export default defineContentScript({
       firsts.get = function (this: Map<unknown, unknown>, key: unknown) {
         if (typeof key === 'string' && key.length <= 12) {
           card.code = key;
-          card.at = Date.now();
+          card.at = painted = Date.now();
         }
         return get.call(this, key);
       };
@@ -246,15 +246,26 @@ export default defineContentScript({
         cardJob.at = Date.now();
       }
     };
+    // The game draws its menus and cards only when something on them changes: a job board left
+    // alone draws nothing for minutes. So a selection that isn't drawn for a while is still
+    // open. It has closed only when the game draws again without it.
+    let painted = 0;
     const fillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText = function (
       this: CanvasRenderingContext2D,
       ...args: Parameters<CanvasRenderingContext2D['fillText']>
     ) {
       fillText.apply(this, args);
+      painted = Date.now();
       if (typeof args[0] === 'string' && (afterFlyTo > 0 || args[0].charCodeAt(0) === 70)) quietly(() => noteText(args[0]));
     };
 
+    type Shown = { code: string; sel: Selection };
+    /** The selection on screen, as of the game's last drawing. */
+    let current: Shown | undefined;
+    /** When the game first drew without it, after it was last drawn. */
+    let missing: number | undefined;
+    let checked = 0;
     let shownKey = '';
     let primary = '';
     let primaryAt = 0;
@@ -265,28 +276,44 @@ export default defineContentScript({
       () =>
         quietly(() => {
           const now = Date.now();
-          const fresh = (t: number) => now - t < 1_500;
-          // A map card, when one is open; else the job picked on the board.
-          let code = '';
-          let sel: Selection | undefined;
-          if (card.code && fresh(card.at)) {
-            code = card.code;
-            sel = { via: 'map', job: fresh(cardJob.at) && Math.abs(cardJob.at - card.at) < 500 ? cardJob.job : undefined };
-          } else if (fresh(board.at) && (board.code || (board.back && last?.at))) {
-            // A round trip lands back here, so its influence counts at the current airport.
-            code = board.back ? last!.at!.code : board.code;
-            sel = { via: 'board', job: board.job, back: board.back };
+          const since = checked;
+          checked = now;
+          // What the game drew since the last check: a map card, or the job picked on the board.
+          // When it drew both, the one drawn last is on top.
+          if (painted > since) {
+            const cardDrawn = !!card.code && card.at > since;
+            const boardDrawn = board.at > since && (!!board.code || (!!board.back && !!last?.at));
+            let seen: Shown | undefined;
+            if (cardDrawn && (!boardDrawn || card.at >= board.at)) {
+              const job = cardJob.at > since && Math.abs(cardJob.at - card.at) < 500 ? cardJob.job : undefined;
+              seen = { code: card.code, sel: { via: 'map', job } };
+            } else if (boardDrawn) {
+              // A round trip lands back here, so its influence counts at the current airport.
+              seen = { code: board.back ? last!.at!.code : board.code, sel: { via: 'board', job: board.job, back: board.back } };
+            }
+            if (seen) {
+              current = seen;
+              missing = undefined;
+            } else if (current) {
+              missing ??= now;
+            }
+          }
+          // Drawn without the selection for most of a second (not just one frame between two
+          // screens): the card or board closed, and Part II stops showing it.
+          if (current && missing !== undefined && now - missing > 700) {
+            current = undefined;
+            missing = undefined;
           }
           // Sent when the selection changes, and again each minute while it stays.
+          const sel = current?.sel;
+          const code = current?.code ?? '';
           const key = sel ? `${code}|${sel.via}|${sel.back ?? ''}|${sel.job?.pay ?? ''}|${Math.floor(now / 60_000)}` : '';
           if (sel && key !== shownKey) {
             describe(code, sel);
             askStandings(code);
           }
           if (sel) shownKey = key;
-          // The card or board closed: Part II stops showing it. Not while the tab is hidden, when
-          // the game stops drawing and every selection looks closed.
-          else if (shownKey && !document.hidden) {
+          else if (shownKey) {
             shownKey = '';
             post({ type: 'unselected', payload: { t: now } });
           }
