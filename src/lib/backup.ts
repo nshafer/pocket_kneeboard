@@ -21,12 +21,24 @@ export function makeBackup(all: Record<string, unknown>, version: string, now: n
   return { kind: BACKUP_KIND, version, exported: now, data };
 }
 
+/**
+ * A backup as JSON text in plain ASCII: every other character is written as a \u escape. Some
+ * clipboards carry only Latin-1 (a VNC session's does), and would turn an airport named
+ * "Zenata – Messali El Hadj" into a control character that breaks the JSON.
+ */
+export function backupJson(b: Backup): string {
+  return JSON.stringify(b).replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 /** Reads a backup file's text. Throws, with a reason fit to show, when it isn't one. */
 export function parseBackup(text: string): Backup {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
+    // U+FFFD, or a control character other than whitespace: a clipboard that lost characters.
+    if (/[\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text))
+      throw new Error('That backup was garbled when it was copied: some characters were lost. Choose the file instead, or copy a new backup.');
     throw new Error('That isn’t a backup file (not JSON).');
   }
   const b = raw as Partial<Backup> | null;

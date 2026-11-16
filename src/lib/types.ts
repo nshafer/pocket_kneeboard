@@ -57,7 +57,7 @@ export interface FleetPlane {
   hours: number;
   /** Net pay earned in it. A personal plane's counts this pilot's jobs since the game kept it. */
   paid?: number;
-  /** A company plane's hours on paid jobs: the game divides `paid` by these. */
+  /** A company plane's hours on flights that delivered a job: the game divides `paid` by these. */
   paidH?: number;
   /** A company plane, rather than the pilot's own. */
   co: boolean;
@@ -254,6 +254,8 @@ export interface Prefs {
   zoom?: number;
   /** The side panel page that was open last. */
   page?: string;
+  /** The page each tab showed last, by tab id, so a tab opens where it was left. */
+  sheets?: Record<string, string>;
   /** The landing log's URL, with `{id}` for the company id. Unset: no log. */
   logUrl?: string;
 }

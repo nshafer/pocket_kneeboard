@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBackup, makeBackup, parseBackup } from '../src/lib/backup';
+import { backupJson, describeBackup, makeBackup, parseBackup } from '../src/lib/backup';
 
 describe('backups', () => {
   const all = {
@@ -22,5 +22,17 @@ describe('backups', () => {
     expect(() => parseBackup('{"a":1}')).toThrow(/isn’t a Pocket Kneeboard backup/);
     expect(() => parseBackup('{"kind":"pocket-kneeboard-backup","data":{}}')).toThrow(/no records/);
     expect(() => parseBackup('{"kind":"pocket-kneeboard-backup","data":{"flash.auth":"x"}}')).toThrow(/doesn’t keep/);
+  });
+
+  it('writes plain ASCII that survives a Latin-1 clipboard', () => {
+    const b = makeBackup({ 'kb:live': { callsign: 'N1C0', airport: 'Zenata – Messali El Hadj, Łódź' } }, '0.3.0', 5);
+    const text = backupJson(b);
+    expect(text).toMatch(/^[\x20-\x7e]*$/);
+    expect(parseBackup(text)).toEqual(b);
+  });
+
+  it('says when a pasted backup lost characters', () => {
+    const garbled = JSON.stringify(makeBackup({ 'kb:live': { a: 'Zenata – x' } }, '0.3.0', 5)).replace('–', '\x13');
+    expect(() => parseBackup(garbled)).toThrow(/garbled/);
   });
 });

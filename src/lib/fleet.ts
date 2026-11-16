@@ -1,7 +1,7 @@
 // Earnings and influence per plane, for the Fleet page.
 //
 // The save keeps, for each plane, its hours and the net pay earned in it (`paid`). A company
-// plane also has `paidH`, its hours on paid jobs. The game's hangar shows `paid / paidH` for a
+// plane also has `paidH`, its hours on flights that delivered a job. The game's hangar shows `paid / paidH` for a
 // company plane and `paid / hours` for a personal one, as the plane's earning rate (client
 // bundle, 2026-11-16). That is the "all time" figure here.
 //
@@ -116,7 +116,7 @@ export interface PlaneWindow {
   totals?: {
     from: number;
     hours: number;
-    /** The hours net pay divides by: paid hours for a company plane that has them. */
+    /** The hours net pay divides by: for a company plane that has them, its hours on flights that delivered a job. */
     rateHours: number;
     /** Net pay. Unset when the save keeps none for this plane. */
     paid?: number;

@@ -113,9 +113,15 @@ on any device as soon as the game here syncs.
 - `paid` is the net pay earned in that plane. For a personal plane it equals
   `data.stats.earnedBy[type]` when the pilot has one plane of that type, and `earnedBy` sums to
   `stats.earned`. A company plane's `paid` covers every pilot, and `paidH` is its hours on paid
-  jobs. Some company planes have no `paid`.
-- The hangar shows `kp()` as the earning rate: `paid / paidH` per hour for a company plane,
-  `paid / hours` for a personal one, and nothing under 0.1 h.
+  jobs. Some company planes have no `paid`. A flight counts toward job hours only when it
+  delivers a job to its destination (`stats.jobH` in the landing code); ferry flights don't.
+- The hangar shows `Dp()` as the earning rate, per minute: `paid / paidH / 60` for a company
+  plane, `paid / hours / 60` for a personal one, and nothing under 0.1 h. Fleet's Life is that × 60.
+- The landing report (`Xse()` in the bundle, 2026-11-16) takes the company's share out of the
+  pilot's pay: 30% in a company plane (the company pays its fuel and maintenance), 10% for a
+  company job in a personal plane, nothing while the share is on hold. The report's `value` is
+  the base pay before any of that, so the share doesn't change influence. `total` (net) also
+  includes passport stamps, first-landing awards, achievements and route bonuses.
 - `data.active.log.t0` is when the flight took off (now − `t0` matches the flight clock
   `active.f.t`). `data.active.ts` is only when the game last wrote the flight: it moves every
   half minute.

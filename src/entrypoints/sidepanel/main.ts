@@ -11,7 +11,7 @@ import { afterJob, holdSummary, type HoldSummary, type JobOutcome } from '@/lib/
 import { unlogged } from '@/lib/totals';
 import { withLog } from '@/lib/log';
 import { FLEET_WINDOW, lifetimeRate, perHour, planeLandings, planeWindow, type PlaneWindow } from '@/lib/fleet';
-import { describeBackup, makeBackup, parseBackup, type Backup } from '@/lib/backup';
+import { backupJson, describeBackup, makeBackup, parseBackup, type Backup } from '@/lib/backup';
 import { netsFromDebug, weekFlights, type FlightRow } from '@/lib/flights';
 import {
   KEYS,
@@ -138,10 +138,13 @@ function line(n: number, text: string, amount: string, cls = '', unit: 'usd' | '
   return `<div class="line ${cls}"><span class="ln">${n}</span><span class="txt">${text}</span><span class="dots"></span><span class="amt">${amt}</span></div>`;
 }
 
+/** Keeps the form's number in `html` from wrapping at its hyphen. */
+const whole = (html: string) => html.replace(FORM, `<span class="form-no">${FORM}</span>`);
+
 function formHead(title: string, sub: string, right = 'Form Approved<br>OMB No. 2120-0250') {
   return `<header class="form-head">
     <div class="agency">U.S. Department of Transportation<br><b>Federal Aviation Administration</b></div>
-    <div class="form-title"><b>${title}</b><small>${sub.replace(FORM, `<span class="form-no">${FORM}</span>`)}</small></div>
+    <div class="form-title"><b>${whole(title)}</b><small>${whole(sub)}</small></div>
     <div class="omb">${right}</div>
   </header>`;
 }
@@ -658,23 +661,32 @@ function instructions(s: State): string[] {
       for each plane, over the last 7 days and, for pay, its whole life as the game counts it.</p>`,
     `<h3>Marks and columns</h3>
       <dl class="marks">
-        <dt><span class="mark">+?</span></dt><dd>Flights from another device whose influence isn’t
-        known yet, or, on Fleet, landings left out because their influence or flight time isn’t.</dd>
-        <dt><span class="mark">*</span></dt><dd>Flown on another device, from the landing log. Its net
-        pay isn’t known.</dd>
-        <dt><span class="mark">≈</span></dt><dd>Shares a rise with a teammate: the landing log’s even
-        split, a guess. Not in the Log’s total.</dd>
-        <dt><span class="mark">cap</span></dt><dd>Only part of the pay counted: your weekly limit there.</dd>
+        <dt><span class="mark">+?</span></dt><dd><b>Airports:</b> flights from another device whose
+        influence isn’t known yet. <b>Fleet:</b> some landings are left out because their influence
+        or flight time is unknown.</dd>
+        <dt><span class="mark">*</span></dt><dd><b>Log:</b> flown on another device. Its net pay
+        isn’t known.</dd>
+        <dt><span class="mark">≈</span></dt><dd><b>Log:</b> landed alongside a teammate, so the
+        landing log split the rise between you evenly, a guess. It isn’t in the total.
+        <b>Fleet:</b> part of the influence is such a split.</dd>
+        <dt><span class="mark">cap</span></dt><dd>Only part of the pay counted, since you hit the
+        weekly cap.</dd>
         <dt>?</dt><dd>Influence not measured.</dd>
-        <dt>N/C</dt><dd>Counts for no one: a helipad or seaplane base.</dd>
+        <dt>N/C</dt><dd>Not counted: a helipad or seaplane base.</dd>
         <dt>—</dt><dd>Not known, or too few hours to say.</dd>
-        <dt>Net</dt><dd>The landing report’s total. <b>Infl.</b>: the base pay that counted.</dd>
-        <dt>Hours</dt><dd>On Fleet, the hours flown in the last 7 days, or since the Pocket
-        Kneeboard began to note your fleet. <b>Net/h</b> is net pay over them.</dd>
-        <dt>Infl./h</dt><dd>Influence of a plane’s landings, yours and with a landing log your
-        teammates’, over those flights’ hours.</dd>
-        <dt>Life</dt><dd>The game’s own figure: net pay over hours, or for a company plane over
-        hours on paid jobs.</dd>
+        <dt>Net</dt><dd>Your personal net income from the flight: the report’s total. It includes
+        bonuses and awards, and takes off the company’s share, fees, and in your own plane fuel and
+        maintenance.</dd>
+        <dt>Infl.</dt><dd>Base pay before adjustments, which counts for influence at an airport up to
+        your weekly limit there.</dd>
+        <dt>Hours</dt><dd>Hours flown in the last 7 days, or since the Pocket Kneeboard was
+        installed.</dd>
+        <dt>Net/h</dt><dd>Net pay over those hours. For a company plane, what it earned for every
+        pilot who flew it.</dd>
+        <dt>Infl./h</dt><dd>Influence of a plane’s landings in the last 7 days, over those flights’
+        hours. With a landing log set up, it includes your teammates’ landings in that plane.</dd>
+        <dt>Life</dt><dd>Net pay per hour over the plane’s life, or for a company plane per hour
+        of flights that delivered a job. The game shows the same rate per minute.</dd>
       </dl>`,
     `<h3>Paperwork Reduction Act notice</h3>
       <p class="small">This form is kept only in your browser. It reads your callsign, company,
@@ -929,8 +941,13 @@ function render(s: State) {
   // A sheet that's gone (fewer airports or planes now) falls back to its tab's last sheet.
   const wantTab = want?.replace(/-\d+$/, '');
   const current = all.find((p) => p.id === want) ?? all.filter((p) => p.tab === wantTab).at(-1) ?? all[0]!;
-  // One tab per kind of page. A tab with several sheets opens on the one showing, or its first.
-  const tabs = all.filter((p) => p.sheet === 1).map((p) => (current.tab === p.tab ? current : p));
+  // One tab per kind of page. A tab with several sheets opens on the one it showed last (or, if
+  // that sheet is gone, its last), else its first.
+  const left = (tab: string) => {
+    const id = s.prefs.sheets?.[tab];
+    return id ? (all.find((p) => p.id === id) ?? all.filter((p) => p.tab === tab).at(-1)) : undefined;
+  };
+  const tabs = all.filter((p) => p.sheet === 1).map((p) => (current.tab === p.tab ? current : (left(p.tab) ?? p)));
   const app = document.getElementById('app')!;
   // Keep focus on the tab, corner or field that had it (a tab and a corner can point to the same page).
   const active = document.activeElement as HTMLElement | null;
@@ -1021,6 +1038,13 @@ addEventListener('resize', () => state && render(state));
 // Sheets are measured with the form's own fonts: once they load, measure again.
 document.fonts.ready.then(() => state && render(state));
 
+/** Opens page `id`, and notes it as the page its tab shows next time. */
+function showPage(id: string | undefined) {
+  if (!id || !state) return;
+  const tab = id.replace(/-\d+$/, '');
+  setPrefs({ page: id, sheets: { ...state.prefs.sheets, [tab]: id } });
+}
+
 function setPrefs(p: Partial<Prefs>) {
   if (!state) return;
   state.prefs = { ...state.prefs, ...p };
@@ -1040,7 +1064,7 @@ document.addEventListener('click', (e) => {
   const claimBox = el.closest<HTMLElement>('[data-claim], [data-unclaim]');
   if (claimBox && state?.live) return toggleClaim(state, claimBox);
   const tab = el.closest<HTMLElement>('[data-page]');
-  if (tab) setPrefs({ page: tab.dataset.page });
+  if (tab) showPage(tab.dataset.page);
 });
 
 /** "This was me": claims (or gives back) the rise in the company total this browser didn't log. */
@@ -1096,7 +1120,7 @@ const redraw = (status?: string, error = false) => {
 async function backupText() {
   const all = await chrome.storage.local.get(null);
   const b = makeBackup(all, VERSION, Date.now());
-  return { text: JSON.stringify(b), records: Object.keys(b.data).length };
+  return { text: backupJson(b), records: Object.keys(b.data).length };
 }
 
 /** Reads a backup to restore, and asks to confirm it. */
@@ -1178,7 +1202,7 @@ document.addEventListener('keydown', (e) => {
   const next =
     e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
   e.preventDefault();
-  setPrefs({ page: tabs[next]!.dataset.page });
+  showPage(tabs[next]!.dataset.page);
   document.querySelector<HTMLElement>(`[role="tab"][data-page="${tabs[next]!.dataset.page}"]`)?.focus();
 });
 
