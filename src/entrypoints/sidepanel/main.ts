@@ -655,6 +655,12 @@ function instructions(s: State): string[] {
       influence it added. A flight counts when it was yours alone. Run
       <span class="typed">server/kneeboard_poll.py</span> under cron, or ask whoever runs one for
       its URL, and enter it in <b>Settings</b> (the gear).</p>`,
+    `<h3>Formation flights</h3>
+      <p>In a formation each pilot flies their own job, and each counts its own base pay; the 10%
+      convoy bonus is in <b>Net</b>, not influence. Your partner’s pay shows in <em>Remarks</em> as a
+      rise that isn’t yours: leave <b>This was me</b> unticked. The landing log sees the company total
+      rise once for you both, so it splits it evenly, a guess (<span class="mark">≈</span>). A flight
+      on this device always counts its exact pay.</p>`,
     `<h3>Log, Airports and Fleet</h3>
       <p><b>Log</b> lists each flight this week with its net pay and the influence it added.
       <b>Airports</b> adds them up by airport. <b>Fleet</b> gives net pay and influence per hour
