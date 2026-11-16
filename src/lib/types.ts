@@ -115,10 +115,19 @@ export interface LedgerEntry {
   job?: string;
   kind?: string;
   /**
-   * Where `pay` came from: the server's `value`, the report's first line, the board, or
-   * `manual`: the pilot ticked "This was me" for a rise in the company total it didn't log.
+   * Where `pay` came from: the server's `value`, the report's first line, the board, `manual`:
+   * the pilot ticked "This was me" for a rise in the company total it didn't log, or `log`: the
+   * landing log (a flight from another device).
    */
-  src: 'value' | 'report' | 'board' | 'manual';
+  src: 'value' | 'report' | 'board' | 'manual' | 'log';
+  /** From the log, not counted: no pay known, or the rise was shared with a teammate. */
+  pending?: 'unknown' | 'teammate';
+  /** For `pending`: the log's even share of the rise, a guess. */
+  est?: number;
+  /** For `teammate`: who shared the rise. */
+  mates?: string[];
+  /** The log saw the pilot reach the weekly limit here with this landing. */
+  capped?: boolean;
 }
 
 export interface Ledger {
@@ -142,7 +151,21 @@ export type HookMessage =
 /** Messages from the side panel to the background worker. */
 export type PanelMessage =
   | { type: 'claim'; payload: { pid: string; code: string; name?: string; pay: number; t: number } }
-  | { type: 'unclaim'; payload: { pid: string; code: string; since: number } };
+  | { type: 'unclaim'; payload: { pid: string; code: string; since: number } }
+  | { type: 'log' };
+
+/** The landing log for the pilot's company, as last downloaded. */
+export interface LogState {
+  co: string;
+  /** Where it came from. Unset when the company has no log. */
+  url?: string;
+  /** When it was last asked for. */
+  t: number;
+  /** The log, from the last download that worked. */
+  log?: import('./log').CompanyLog;
+  /** Why the last download failed. */
+  error?: string;
+}
 
 /** The airport selected on the map or the job board, and the job to it. */
 export interface Selected {
@@ -165,6 +188,7 @@ export const KEYS = {
   debug: 'kb:debug',
   totals: 'kb:totals',
   ledger: (pid: string) => `kb:ledger:${pid}`,
+  log: 'kb:log',
 } as const;
 
 export interface Prefs {
@@ -172,4 +196,6 @@ export interface Prefs {
   zoom?: number;
   /** The side panel page that was open last. */
   page?: string;
+  /** The landing log's URL, with `{id}` for the company id. Unset: no log. */
+  logUrl?: string;
 }

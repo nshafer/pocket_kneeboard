@@ -902,6 +902,41 @@ footer:has(~ .curl.prev) {
 .instr .small {
   font-size: 9px;
 }
+.log-form {
+  display: flex;
+  gap: 4px;
+  margin: 2px 0;
+}
+.log-form input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 9.5px;
+  padding: 2px 4px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+}
+.log-form button {
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid var(--ink);
+  background: var(--shade);
+  color: var(--ink);
+  cursor: pointer;
+}
+.ledger sup.q {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--stamp);
+  margin-left: 1px;
+}
+/* A paragraph with a long unbreakable name: justified, its lines would gape. */
+.instr p.ragged {
+  text-align: left;
+}
 .instr .typed {
   font-size: 9.5px;
 }

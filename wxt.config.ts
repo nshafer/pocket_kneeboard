@@ -12,7 +12,9 @@ export default defineConfig({
     // extension keeps its ID, and its saved records, wherever its folder is.
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuNBTWeE1w6FEu7xmJFtREnHMV7t9sDt1tPQDy1EiC54GMtNi9xlUeUJWHjNJOSTLNx/J7ltsTrd42RZU9P4jNTQYkLvDytFyXkAYzZgAIU1wnOuK+3l4eaE/5s5uvTGcOsyF0HNa+aoAgxpzNtxtW8ABfYDELT8/17DXQfoneSB4ygG07wuE297hfjxm8LYEUg0e44eURIh13FYIIrxBmaX9cK+0dkhq5+XxZByng96SQdH0FS//lsB3IitPI1UNtGsl/+ufrMtEf4UeLyCE0beaTIfTcn8rbyzRgQhWL0HzvkVw+lq7Jz8ZZcsjCi+67W1YqIuh1AY6dBx1m0Kg+QIDAQAB',
     permissions: ['storage', 'sidePanel'],
+    // The landing log's site (server/kneeboard_poll.py) is asked for when the pilot sets its URL.
     host_permissions: ['https://pilots.nimblebit.com/*'],
+    optional_host_permissions: ['https://*/*', 'http://*/*'],
     action: { default_title: 'Pocket Kneeboard' },
     commands: {
       _execute_action: { suggested_key: { default: 'Alt+K' }, description: 'Show or hide the Pocket Kneeboard' },

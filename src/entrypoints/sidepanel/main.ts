@@ -9,11 +9,13 @@ import './style.css';
 import { WEEKLY_CAP, emptyTally, tallyAll, unseenLandings, weekStart, type Tally } from '@/lib/ledger';
 import { afterJob, holdSummary, type HoldSummary, type JobOutcome } from '@/lib/hold';
 import { unlogged } from '@/lib/totals';
+import { withLog } from '@/lib/log';
 import {
   KEYS,
   type AirportInfo,
   type AirportStandings,
   type Ledger,
+  type LogState,
   type PanelMessage,
   type Prefs,
   type Selected,
@@ -31,7 +33,9 @@ const ROWS_PER_PAGE = 20;
 
 interface State {
   live?: Snapshot;
+  /** The pilot's ledger with their landings from the landing log merged in. */
   ledger?: Ledger;
+  log?: LogState;
   standings: Record<string, AirportStandings>;
   airports: Record<string, AirportInfo>;
   totals: TotalsHistory;
@@ -198,9 +202,20 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
       items.push(`<button type="button" class="claim" data-unclaim="${esc(code)}">${cb(true)}This was me ${hand(`$${money(u.claimed)}`, '', 'claimed')} <small>(untick to take it back)</small></button>`);
     }
   }
+  // Landings from other devices (the landing log) that don't count yet.
+  const week = weekStart(now);
+  const pending = (s.ledger?.entries ?? []).filter((e) => e.code === code && e.pending && e.t >= week);
+  for (const e of pending.filter((e) => e.pending === 'teammate')) {
+    const est = e.est ? `≈$${money(e.est)}` : 'pay ?';
+    items.push(note(`Other device ${clock(e.t, now)}: shared with ${(e.mates ?? []).join(', ')}, ${est}, not counted.`, 5));
+  }
+  const unknown = pending.filter((e) => e.pending === 'unknown').length;
+  if (unknown) items.push(note(`${unknown} flight${unknown > 1 ? 's' : ''} here from another device, pay not known.`, 6));
   extra.forEach((t, i) => items.push(note(t, 10 + i)));
-  const last = s.ledger?.entries.filter((e) => e.code === code && e.src !== 'manual').at(-1);
-  if (last) items.push(note(`Last flight here: $${money(last.pay)}${last.counted ? '' : ` (${last.why}, no credit)`}, ${ago(last.t, now)}.`, 20));
+  // Uncounted landings from the log have their own remark above.
+  const last = s.ledger?.entries.filter((e) => e.code === code && e.src !== 'manual' && !e.pending).at(-1);
+  const device = last?.src === 'log' ? ' (other device)' : '';
+  if (last) items.push(note(`Last flight here${device}: $${money(last.pay)}${last.counted ? '' : ` (${last.why}, no credit)`}, ${ago(last.t, now)}.`, 20));
   const landed = s.airports[code]?.landed ?? [];
   if (landed.length) {
     const list = landed.slice(0, 4).map((l) => `${l.me ? 'me' : l.cs} ${clock(l.t, now)}`).join(', ');
@@ -305,14 +320,22 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
     <h2 class="bar">Part II — Other airport <span class="sub">${sel ? `(selected ${selVia} ${esc(ago(sel.t, now))})` : '(pick one on the map or job board)'}</span></h2>
     ${airportPart(s, sel?.code, { n: 30 }, now, true, sel)}
     <div class="grow"></div>
-    <p class="see">Figures are estimates worked out in this browser, not read from the server. See the instructions.</p>
+    <p class="see">${logNote(s, now)}</p>
     ${footer(pageNo, pages)}`;
+}
+
+/** The worksheet's footnote: the landing log's state, or the usual one. */
+function logNote(s: State, now: number) {
+  const l = s.log;
+  if (l && !l.url) return 'No landing log for your company: flights on other devices aren’t counted. See the instructions.';
+  if (l?.error) return `Landing log unreachable (${esc(l.error)})${l.log ? `; last copy ${esc(ago(l.log.updated, now))}` : ''}. See the instructions.`;
+  return 'Figures are estimates worked out in this browser, not read from the server. See the instructions.';
 }
 
 // --- Schedule A: every airport ----------------------------------------------------------------
 
 /** A row with nothing that counts: only pad jobs, or a place that can't be held. */
-const noCredit = (t: Tally) => !!t.facility || t.thisRaw === 0;
+const noCredit = (t: Tally) => !!t.facility || (t.thisRaw === 0 && !t.pending && !t.capped);
 
 function scheduleA(s: State, now: number): string[] {
   // Only airports flown to this week: last week's landings don't count toward this week's limit.
@@ -325,9 +348,11 @@ function scheduleA(s: State, now: number): string[] {
   const unseen = Object.entries(unseenLandings(s.ledger, s.live)).sort(([, a], [, b]) => b - a);
   const listed = unseen.slice(0, 4).map(([c, n]) => `${c} ×${n}`).join(', ');
   const more = unseen.length > 4 ? ` and ${unseen.length - 4} more` : '';
-  const remark = unseen.length
-    ? hand(`${listed}${more}: landings in your logbook this Pocket Kneeboard didn’t see (other device?). Not counted.`, 'remark')
-    : '';
+  const remarks: string[] = [];
+  if (unseen.length) remarks.push(`${listed}${more}: landings in your logbook this Pocket Kneeboard didn’t see (other device?). Not counted.`);
+  if (rows.some((t) => t.pending)) remarks.push('+? : flights from another device with no exact pay yet. See the worksheet.');
+  if (s.log?.log) remarks.push(`Landing log updated ${ago(s.log.log.updated, now)}.`);
+  const remark = remarks.map((r, i) => hand(r, 'remark', `sched${i}`)).join('');
 
   const chunks: Tally[][] = [];
   for (let i = 0; i < Math.max(1, rows.length); i += ROWS_PER_PAGE) chunks.push(rows.slice(i, i + ROWS_PER_PAGE));
@@ -340,7 +365,7 @@ function scheduleA(s: State, now: number): string[] {
       body += `<tr${nc ? ' class="nc"' : ''}>
         <td>${hand(t.code, 'fit')}</td>
         <td>${hand(nameOf(s, t.code, t), 'fit')}</td>
-        <td class="num">${nc ? hand('N/C') : hand(thousands(t.thisWeek))}</td>
+        <td class="num">${nc ? hand('N/C') : hand(thousands(t.thisWeek))}${!nc && t.pending && !t.capped ? '<sup class="q" title="Flights from another device with no pay known yet">+?</sup>' : ''}</td>
         <td class="num">${nc ? '' : hand(thousands(t.room))}</td>
         <td>${nc ? '' : `<span class="meter" style="--fill:${(t.thisWeek / WEEKLY_CAP) * 100}%"></span>`}</td>
       </tr>`;
@@ -365,6 +390,28 @@ function scheduleA(s: State, now: number): string[] {
 
 // --- Instructions -----------------------------------------------------------------------------
 
+/** The landing log's status and URL setting, on the instructions page. */
+function logForm(s: State) {
+  const co = s.live?.co;
+  const now = Date.now();
+  const l = s.log;
+  const status = !co
+    ? 'Join a company to use a landing log.'
+    : l?.error
+      ? `Can’t read it: ${esc(l.error)}.`
+      : l?.log
+        ? `Working: updated ${esc(ago(l.log.updated, now))}, ${l.log.landings.length} landings.`
+        : l?.url
+          ? 'Not read yet.'
+          : 'None set: flights on other devices aren’t counted.';
+  return `<form class="log-form" data-log-form>
+      <input type="url" name="url" placeholder="https://example.org/kneeboard/{id}.json"
+        value="${esc(s.prefs.logUrl ?? '')}" aria-label="Landing log URL" ${co ? '' : 'disabled'}>
+      <button type="submit" ${co ? '' : 'disabled'}>Save</button>
+    </form>
+    <p class="small">${status}${co ? ` Your company: ${esc(s.live?.coTag ?? '?')}, id ${typed(co)}.` : ''}</p>`;
+}
+
 function instructions(s: State): string {
   const since = s.ledger ? typed(dateUtc(s.ledger.since)) : 'the day you installed it';
   return `
@@ -379,30 +426,33 @@ function instructions(s: State): string {
       <p>At each landing, the Pocket Kneeboard reads the report. A flight adds the job’s
       <b>base pay</b> (the report’s first line) at the airport where it lands. Bonuses, fees and
       fuel don’t count. Helipads and seaplane bases count for no one. Weeks start Monday 00:00 UTC,
-      and each week you can add up to $250,000 at each airport. This form tracks this week only. The
-      game’s standings also carry half of last week’s influence, but that is already in the company
-      totals it shows, and nothing you fly now can change it.</p>
+      and each week you can add up to $250,000 at each airport. This form tracks this week only:
+      half of last week also counts, but it’s already in the company totals the game shows.</p>
 
       <h3>These are estimates</h3>
-      <p>Only company totals and holders come from the game; the rest is worked out here, as you
-      fly. Keep the Pocket Kneeboard open while you play. A game update can change the rules.</p>
+      <p>Only company totals and holders come from the game; the rest is worked out here. A game
+      update can change the rules.</p>
 
       <h3>What is missing</h3>
       <ul>
         <li><b>Flights before ${since}.</b> The game keeps no history by pilot. After two full weeks
         the figures are complete.</li>
-        <li><b>Flights on another device</b>, such as your phone. When your company’s total at an
-        airport rose more than your logged flights explain, its <em>Remarks</em> say how much,
-        and who landed there. Tick <b>This was me</b> to count it as yours; untick to take it
-        back.</li>
+        <li><b>Flights on another device</b>, without a landing log (below). <em>Remarks</em> show
+        a rise your flights don’t explain; tick <b>This was me</b> to count it.</li>
       </ul>
+
+      <h3>Flights from other devices</h3>
+      <p class="ragged">A script on a server can poll the game each minute and log every landing by your
+      company, with the influence it added. A flight counts when it was yours alone. Run
+      <span class="typed">server/kneeboard_poll.py</span> under cron with your company’s id
+      (below), or ask whoever runs one for its URL.</p>
+      ${logForm(s)}
 
       <h3>Paperwork Reduction Act notice</h3>
       <p class="small">This form is kept only in your browser. It reads your callsign, company,
-      position, active job and landing counts from the game’s save, never your sign-in, and asks
-      the game for airport standings. Estimated time to fill in: 0 minutes; it fills in itself. A
-      pilot need not respond to a collection of information unless it displays a currently valid
-      OMB control number.</p>
+      position, active job, landing counts and company from the game’s save, never your sign-in.
+      It asks the game for airport standings, and reads your company’s landing log. Estimated time
+      to fill in: 0 minutes; it fills in itself.</p>
     </div>
     <div class="grow"></div>`;
 }
@@ -477,10 +527,12 @@ function render(s: State) {
 // --- Wiring -----------------------------------------------------------------------------------
 
 async function load(): Promise<State> {
-  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs]);
+  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs, KEYS.log]);
   const live = got[KEYS.live] as Snapshot | undefined;
   const ledgerKey = live ? KEYS.ledger(live.pid) : undefined;
-  const ledger = ledgerKey ? ((await chrome.storage.local.get(ledgerKey))[ledgerKey] as Ledger | undefined) : undefined;
+  const saved = ledgerKey ? ((await chrome.storage.local.get(ledgerKey))[ledgerKey] as Ledger | undefined) : undefined;
+  const log = got[KEYS.log] as LogState | undefined;
+  const ledger = saved && log?.co === live?.co ? withLog(saved, log?.log, weekStart) : saved;
   const prefs = (got[KEYS.prefs] as Prefs | undefined) ?? {};
   return {
     live,
@@ -490,11 +542,16 @@ async function load(): Promise<State> {
     totals: (got[KEYS.totals] as TotalsHistory | undefined) ?? {},
     selected: got[KEYS.selected] as State['selected'],
     prefs,
+    log: log?.co === live?.co ? log : undefined,
   };
 }
 
 let state: State | undefined;
-const refresh = async () => render((state = await load()));
+const refresh = async () => {
+  render((state = await load()));
+  // The background downloads the landing log when it's a minute old.
+  chrome.runtime.sendMessage({ kb: true, type: 'log' } satisfies { kb: true } & PanelMessage).catch(() => {});
+};
 
 /** Print size: CSS zoom on the whole clipboard, from 50% to 150% in steps of 10%. */
 const ZOOM_MIN = 0.5;
@@ -550,6 +607,25 @@ function toggleClaim(s: State, el: HTMLElement) {
   const msg: PanelMessage = { type: 'claim', payload: { pid, code, name, pay: u.others, t: u.to.t } };
   return chrome.runtime.sendMessage({ kb: true, ...msg });
 }
+
+document.addEventListener('submit', async (e) => {
+  const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-log-form]');
+  if (!form || !state) return;
+  e.preventDefault();
+  const raw = (new FormData(form).get('url') as string | null)?.trim() ?? '';
+  if (raw) {
+    let origin: string;
+    try {
+      origin = new URL(raw.replaceAll('{id}', 'x')).origin;
+    } catch {
+      return form.querySelector('input')?.setCustomValidity('Not a URL'), form.reportValidity();
+    }
+    const ok = await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false);
+    if (!ok) return;
+  }
+  setPrefs({ logUrl: raw || undefined });
+  chrome.runtime.sendMessage({ kb: true, type: 'log' }).catch(() => {});
+});
 
 document.addEventListener('keydown', (e) => {
   const tab = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');

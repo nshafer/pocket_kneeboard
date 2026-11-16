@@ -3,12 +3,15 @@
 
 import { claim, newLedger, recordLanding, unclaim } from '@/lib/ledger';
 import { addTotal } from '@/lib/totals';
+import { logUrl, parseLog } from '@/lib/log';
 import { replacesSelection } from '@/lib/game';
 import {
   KEYS,
   type AirportInfo,
   type AirportStandings,
   type HookMessage,
+  type LogState,
+  type Prefs,
   type Ledger,
   type PanelMessage,
   type Snapshot,
@@ -18,6 +21,8 @@ import {
 const GAME = /^https:\/\/pilots\.nimblebit\.com\//;
 const MAX_STANDINGS = 40;
 const MAX_DEBUG = 20;
+/** The landing log is downloaded at most this often. The server rewrites it once a minute. */
+const LOG_EVERY = 55_000;
 
 export default defineBackground(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
@@ -46,7 +51,7 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((msg: { kb?: boolean } & (HookMessage | PanelMessage), sender) => {
     if (!msg?.kb || sender.id !== chrome.runtime.id || !sender.url) return;
     const fromGame = GAME.test(sender.url) && ['snapshot', 'landing', 'standings', 'airport'].includes(msg.type);
-    const fromPanel = sender.url.startsWith(PANEL) && ['claim', 'unclaim'].includes(msg.type);
+    const fromPanel = sender.url.startsWith(PANEL) && ['claim', 'unclaim', 'log'].includes(msg.type);
     if (!fromGame && !fromPanel) return;
     queue = queue.then(() => handle(msg)).catch((e) => console.error('[PocketKneeboard]', e));
   });
@@ -133,6 +138,9 @@ async function handle(msg: HookMessage | PanelMessage) {
       });
       break;
     }
+    case 'log':
+      await fetchLog(now);
+      break;
     case 'claim':
     case 'unclaim': {
       const key = KEYS.ledger(msg.payload.pid);
@@ -143,4 +151,28 @@ async function handle(msg: HookMessage | PanelMessage) {
       break;
     }
   }
+}
+
+/**
+ * Downloads the landing log for the pilot's company (see src/lib/log.ts), when the last try is a
+ * minute old. Keeps the last log that worked if a download fails.
+ */
+async function fetchLog(now: number) {
+  const co = (await get<Snapshot>(KEYS.live))?.co;
+  if (!co) return;
+  const prev = await get<LogState>(KEYS.log);
+  const url = logUrl(co, (await get<Prefs>(KEYS.prefs))?.logUrl);
+  if (prev && prev.co === co && prev.url === url && now - prev.t < LOG_EVERY) return;
+  const keep = prev?.co === co && prev.url === url ? prev.log : undefined;
+  if (!url) return chrome.storage.local.set({ [KEYS.log]: { co, t: now } satisfies LogState });
+  await chrome.storage.local.set({ [KEYS.log]: { co, url, t: now, log: keep, error: prev?.error } satisfies LogState });
+  let next: LogState;
+  try {
+    const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    next = { co, url, t: now, log: parseLog(await res.json(), co) };
+  } catch (e) {
+    next = { co, url, t: now, log: keep, error: e instanceof Error ? e.message : String(e) };
+  }
+  await chrome.storage.local.set({ [KEYS.log]: next });
 }

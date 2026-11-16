@@ -63,6 +63,21 @@ const data = {
     EIDW: { code: 'EIDW', t: now - 4 * 60_000, holder: 'c1', list: [{ id: 'c1', value: 277_100 }, { id: 'c2', value: 197_740 }], cos: { c1: { tag: 'NSA' }, c2: { tag: 'SRAK' } } },
     EGNH: { code: 'EGNH', t: now - 2 * 60_000, holder: 'c2', list: [{ id: 'c2', value: 90_000 }, { id: 'c1', value: 44_000 }], cos: { c1: { tag: 'NSA' }, c2: { tag: 'VANG' } } },
   },
+  // The landing log: a phone flight into EIDW shared with a teammate, and one into EGNH whose pay
+  // the log couldn't measure.
+  'kb:log': {
+    co: 'c1',
+    url: 'https://example.org/kneeboard/c1.json',
+    t: now,
+    log: {
+      co: 'c1',
+      updated: now - 60_000,
+      landings: [
+        { key: 'demo:1', pid, cs: 'N1C0', to: 'EIDW', t0: now - 90 * 60_000, t: now - 50 * 60_000, how: 'shared', pay: 8_000, with: [{ pid: 'm8', cs: 'MATE' }] },
+        { key: 'demo:2', pid, cs: 'N1C0', to: 'EGNH', t0: now - 30 * 60_000, t: now - 10 * 60_000, how: 'unknown', pay: null },
+      ],
+    },
+  },
   'kb:selected': { code: 'EGNH', t: now - 2 * 60_000, via: 'board', job: { pay: 50_000, time: '45m' } },
   'kb:airports': {
     EIDW: { code: 'EIDW', t: now, name: 'Dublin', held: { co: 'c1', v: 277_100, tag: 'NSA' }, selected: false },

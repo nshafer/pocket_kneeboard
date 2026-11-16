@@ -21,3 +21,4 @@ local/
 
 # --- Pocket Kneeboard ---
 /preview/
+__pycache__/

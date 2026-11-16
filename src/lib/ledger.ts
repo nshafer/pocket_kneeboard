@@ -122,6 +122,12 @@ export interface Tally {
   why?: string;
   /** Set when the place itself can't be held. */
   facility?: 'helipad' | 'seaplane';
+  /** This week's landings from the log that don't count yet: pay unknown or shared with a teammate. */
+  pending: number;
+  /** The log's guess at their pay, where it has one. */
+  pendingEst: number;
+  /** The log saw the pilot reach the weekly limit here this week. */
+  capped: boolean;
 }
 
 export function tallyFor(ledger: Ledger | undefined, code: string, now: number): Tally {
@@ -129,7 +135,7 @@ export function tallyFor(ledger: Ledger | undefined, code: string, now: number):
 }
 
 export function emptyTally(code: string): Tally {
-  return { code, thisRaw: 0, lastRaw: 0, thisWeek: 0, lastWeek: 0, influence: 0, room: WEEKLY_CAP, deliveries: 0, noCredit: 0 };
+  return { code, thisRaw: 0, lastRaw: 0, thisWeek: 0, lastWeek: 0, influence: 0, room: WEEKLY_CAP, deliveries: 0, noCredit: 0, pending: 0, pendingEst: 0, capped: false };
 }
 
 /** Influence per airport, over this week and last week. */
@@ -144,7 +150,13 @@ export function tallyAll(ledger: Ledger | undefined, now: number): Map<string, T
     t.name ??= e.name;
     t.deliveries++;
     t.facility ??= e.facility;
-    if (!e.counted) {
+    if (e.capped && e.t >= thisWk) t.capped = true;
+    if (e.pending) {
+      if (e.t >= thisWk) {
+        t.pending++;
+        t.pendingEst += e.est ?? 0;
+      }
+    } else if (!e.counted) {
       t.noCredit += e.pay;
       t.why = e.why;
     } else if (e.t >= thisWk) {
@@ -155,7 +167,8 @@ export function tallyAll(ledger: Ledger | undefined, now: number): Map<string, T
     out.set(e.code, t);
   }
   for (const t of out.values()) {
-    t.thisWeek = Math.min(WEEKLY_CAP, t.thisRaw);
+    // The log saw the limit reached even if some of the pay that reached it is unknown here.
+    t.thisWeek = t.capped ? WEEKLY_CAP : Math.min(WEEKLY_CAP, t.thisRaw);
     t.lastWeek = Math.min(WEEKLY_CAP, t.lastRaw);
     t.influence = t.thisWeek + t.lastWeek / 2;
     t.room = WEEKLY_CAP - t.thisWeek;
