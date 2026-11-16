@@ -37,20 +37,40 @@ export interface Unlogged {
   others: number;
 }
 
-/** How this week's rise in our total at `code` splits between logged deliveries and the rest. */
+/**
+ * How far apart a landing's time and the first sighting of the total it raised can be. A landing
+ * is timed when the game's reply to it arrives, and the game's figures can show the new total a
+ * minute or more before that (or a stale one after it), so the order of the two isn't reliable.
+ */
+export const SKEW = 5 * 60_000;
+
+/**
+ * How this week's rise in our total at `code` splits between logged deliveries and the rest.
+ *
+ * The rise runs from the first sighting this week to the highest. Within a week the total only
+ * rises, so a lower figure after a higher one is a stale reply, and is passed over. A landing
+ * between the two counts as mine. One within SKEW of the first sighting, or just after the highest,
+ * counts only while the rise still has room for it: the game can show a total a minute or more
+ * before the reply to the landing that raised it arrives, so the first sighting may already
+ * include a landing timed after it, and the highest one a landing timed just after it.
+ */
 export function unlogged(hist: TotalsHistory, ledger: Ledger | undefined, code: string, now: number): Unlogged | undefined {
   const week = weekStart(now);
   const seen = (hist[code] ?? []).filter((r) => r.t >= week);
   if (seen.length < 2) return undefined;
   const from = seen[0]!;
-  const to = seen.at(-1)!;
+  const to = seen.reduce((top, r) => (r.v >= top.v ? r : top), from);
   const rise = Math.max(0, to.v - from.v);
   let mine = 0;
   let claimed = 0;
+  const edge: number[] = [];
   for (const e of ledger?.entries ?? []) {
-    if (e.code !== code || !e.counted || e.t <= from.t || e.t > to.t) continue;
-    mine += e.pay;
-    if (e.src === 'manual') claimed += e.pay;
+    if (e.code !== code || !e.counted || e.t < week) continue;
+    if (e.src === 'manual' ? e.t > from.t && e.t <= to.t : e.t > from.t + SKEW && e.t <= to.t) {
+      mine += e.pay;
+      if (e.src === 'manual') claimed += e.pay;
+    } else if (e.src !== 'manual' && e.t > from.t - SKEW && e.t <= to.t + SKEW) edge.push(e.pay);
   }
+  for (const pay of edge) if (mine + pay <= rise) mine += pay;
   return { from, to, rise, mine, claimed, others: Math.max(0, rise - mine) };
 }

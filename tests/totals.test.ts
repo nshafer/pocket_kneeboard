@@ -21,6 +21,36 @@ describe('addTotal', () => {
 });
 
 describe('unlogged', () => {
+  // From a host backup (2026-11-16): the new total at EGAC was seen 1.7 s before the landing's
+  // reply arrived, with a stale read of the old total in between.
+  it('counts a landing whose reply came just after the total it raised', () => {
+    const egac: TotalsHistory = {
+      EGAC: [
+        { t: at('2026-11-15T14:34:10Z'), v: 93_170 },
+        { t: at('2026-11-15T19:00:30Z'), v: 95_140 },
+        { t: at('2026-11-15T19:01:30Z'), v: 93_170 }, // stale
+        { t: at('2026-11-15T19:01:31Z'), v: 95_140 },
+      ],
+    };
+    let l = newLedger(snap, 0);
+    l = recordLanding(l, { t: at('2026-11-15T19:01:33Z'), pid: 'p1', code: 'EGAC', job: { id: 'J', to: 'EGAC' }, result: { value: 1_970 } }, now);
+    expect(unlogged(egac, l, 'EGAC', now)).toMatchObject({ rise: 1_970, mine: 1_970, others: 0 });
+  });
+
+  it('leaves out a landing near the window that the rise has no room for', () => {
+    // The first sighting already included it (EGOQ, same backup), and a later one isn't in yet.
+    const h2: TotalsHistory = {
+      EGOQ: [
+        { t: at('2026-11-15T14:00:00Z'), v: 10_630 },
+        { t: at('2026-11-15T16:00:00Z'), v: 15_630 },
+      ],
+    };
+    let l = newLedger(snap, 0);
+    l = recordLanding(l, { t: at('2026-11-15T14:01:06Z'), pid: 'p1', code: 'EGOQ', job: { id: 'A', to: 'EGOQ' }, result: { value: 10_630 } }, now);
+    l = recordLanding(l, { t: at('2026-11-15T16:02:00Z'), pid: 'p1', code: 'EGOQ', job: { id: 'B', to: 'EGOQ' }, result: { value: 9_000 } }, now);
+    expect(unlogged(h2, l, 'EGOQ', now)).toMatchObject({ rise: 5_000, mine: 0, others: 5_000 });
+  });
+
   const h: TotalsHistory = {
     EIDW: [
       { t: at('2026-11-08T10:00:00Z'), v: 999 }, // last week: ignored
