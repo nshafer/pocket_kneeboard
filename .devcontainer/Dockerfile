@@ -8,7 +8,8 @@ ARG PLAYWRIGHT_VERSION="1.64.1"
 ARG CHROME_DEVTOOLS_MCP_VERSION="1.12.0"
 ARG ADDITIONAL_PACKAGES="ca-certificates curl xz-utils jq python3 make iputils-ping dnsutils \
     xvfb x11vnc novnc websockify fonts-liberation fonts-noto-color-emoji \
-    mesa-vulkan-drivers libvulkan1 vulkan-tools"
+    mesa-vulkan-drivers libvulkan1 vulkan-tools \
+    libgtk-3-0t64"
 ARG TARGETARCH
 
 RUN apt update && \
