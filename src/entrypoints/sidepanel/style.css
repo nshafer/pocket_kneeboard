@@ -488,13 +488,6 @@ button {
 .bubble.part::after {
   clip-path: inset(0 calc(100% - var(--fill)) 0 0);
 }
-.bubbles.small {
-  gap: 4px;
-  max-width: 60%;
-}
-.bubbles.small .group small {
-  font-size: 6px;
-}
 
 /* Worksheet lines */
 .lines {
@@ -631,6 +624,21 @@ button {
   filter: url(#worn);
   pointer-events: none;
 }
+/* "Capped", stamped across the bubbles once this week's flights reach the limit. */
+.stamp.capped {
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  top: 50%;
+  padding: 4px 16px 3px;
+  font-size: 20px;
+  white-space: nowrap;
+  transform: translate(-50%, -50%) rotate(-6deg);
+  background: var(--paper);
+  opacity: 0.9;
+  /* Unworn: the worn filter's holes let the dark bubbles show through and hide the word. */
+  filter: none;
+}
 .stamp small {
   display: block;
   font-size: 7px;
@@ -713,12 +721,11 @@ footer {
   width: 18%;
 }
 .ledger th:nth-child(3),
-.ledger th:nth-child(4),
-.ledger th:nth-child(5) {
-  width: 14.5%;
+.ledger th:nth-child(4) {
+  width: 16%;
 }
-.ledger th:nth-child(6) {
-  width: 13%;
+.ledger th:nth-child(5) {
+  width: 16%;
 }
 .ledger td {
   height: 23px;
@@ -809,7 +816,7 @@ footer {
 
 /* --- Remarks -------------------------------------------------------------------------------- */
 
-/* Part I's remarks have one ruled line; Part II's take whatever room is left on the page. */
+/* Part I's remarks have two ruled lines; Part II's take whatever room is left on the page. */
 .row.grow {
   min-height: 22px;
 }
@@ -825,11 +832,11 @@ footer {
   padding-top: 1px;
   background: repeating-linear-gradient(to bottom, transparent 0 21px, var(--rule) 21px 22px);
 }
-/* Part I's remarks: one ruled line (two when there's a rise both to claim and to give back),
-   so a long remark ends in "…" instead of wrapping out of sight. */
+/* Part I's remarks: two ruled lines, one remark each, so a long remark ends in "…" instead of
+   wrapping out of sight. */
 .row.notes .val {
   flex: none;
-  min-height: 22px;
+  min-height: 44px;
 }
 .row.notes .hw.remark,
 .row.notes .claim small {
@@ -902,12 +909,11 @@ footer {
     width: 16.5%;
   }
   .ledger th:nth-child(3),
-  .ledger th:nth-child(4),
-  .ledger th:nth-child(5) {
-    width: 15.5%;
+  .ledger th:nth-child(4) {
+    width: 17.5%;
   }
-  .ledger th:nth-child(6) {
-    width: 12.5%;
+  .ledger th:nth-child(5) {
+    width: 14%;
     padding-inline: 1px;
     letter-spacing: 0;
   }

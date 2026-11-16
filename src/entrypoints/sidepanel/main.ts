@@ -169,14 +169,11 @@ const clock = (t: number, now: number) => {
 };
 
 /**
- * Remarks about one airport, most important first (Part I has room for one line):
- * the company total's rise this week and how much of it this browser logged, with "This was me"
- * to claim the rest; the last flight here; who from the company landed here; missed landings.
- */
-/**
- * The remarks for one airport. `brief` is for Part I, which has room for one ruled line: a rise
- * to claim becomes the "This was me" box itself, with the reason in small print, and otherwise
- * only the first remark shows.
+ * The remarks for one airport, most important first: the company total's rise this week and how
+ * much of it this browser logged, with "This was me" to claim the rest; the last flight here; who
+ * from the company landed here; missed landings. `brief` is for Part I, which has room for two
+ * ruled lines. There, when there's a rise both to claim and to give back, the two check boxes
+ * take both lines and the rise goes in small print.
  */
 function partRemarks(s: State, code: string | undefined, now: number, extra: string[] = [], brief = false) {
   if (!code) return '';
@@ -185,21 +182,13 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
   const note = (t: string, i: number) => hand(t, 'remark', `remark${i}`);
 
   const u = unlogged(s.totals, s.ledger, code, now);
-  if (brief && u && u.rise > 0 && (u.others > 0 || u.claimed > 0)) {
-    const why = `(${esc(us)} +$${money(u.rise)} here since ${clock(u.from.t, now)}, $${money(u.mine)} logged)`;
+  if (u && u.rise > 0) {
+    const both = brief && u.others > 0 && u.claimed > 0;
+    const notMine = u.others > 0 ? `, $${money(u.others)} not` : '';
+    if (!both) items.push(note(`${us} here +$${money(u.rise)} since ${clock(u.from.t, now)}: $${money(u.mine)} logged as mine${notMine}.`, 0));
+    const why = both ? `(${esc(us)} +$${money(u.rise)} here since ${clock(u.from.t, now)}, $${money(u.mine)} logged)` : '(adds it to my influence)';
     if (u.others > 0) {
       items.push(`<button type="button" class="claim" data-claim="${esc(code)}">${cb(false)}This was me ${hand(`$${money(u.others)}`, '', 'claim')} <small>${why}</small></button>`);
-    }
-    if (u.claimed > 0) {
-      items.push(`<button type="button" class="claim" data-unclaim="${esc(code)}">${cb(true)}This was me ${hand(`$${money(u.claimed)}`, '', 'claimed')} <small>(untick to take it back)</small></button>`);
-    }
-    return items.join('');
-  }
-  if (u && u.rise > 0) {
-    const notMine = u.others > 0 ? `, $${money(u.others)} not` : '';
-    items.push(note(`${us} here +$${money(u.rise)} since ${clock(u.from.t, now)}: $${money(u.mine)} logged as mine${notMine}.`, 0));
-    if (u.others > 0) {
-      items.push(`<button type="button" class="claim" data-claim="${esc(code)}">${cb(false)}This was me ${hand(`$${money(u.others)}`, '', 'claim')} <small>(adds it to my influence)</small></button>`);
     }
     if (u.claimed > 0) {
       items.push(`<button type="button" class="claim" data-unclaim="${esc(code)}">${cb(true)}This was me ${hand(`$${money(u.claimed)}`, '', 'claimed')} <small>(untick to take it back)</small></button>`);
@@ -216,7 +205,7 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
   const unseen = unseenLandings(s.ledger, s.live)[code];
   if (unseen) items.push(note(`${unseen} landing${unseen > 1 ? 's' : ''} here I didn’t see (other device?).`, 22));
   if (!items.length && s.live) items.push(note('No flights logged here yet.', 23));
-  return (brief ? items.slice(0, 1) : items).join('');
+  return (brief ? items.slice(0, 2) : items).join('');
 }
 
 function airportPart(s: State, code: string | undefined, num: { n: number }, now: number, compact = false, sel?: Selected) {
@@ -240,25 +229,16 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
       ${box(n(), 'Airport name', name ? hand(name, 'fit', 'name') : '')}
       ${box(n(), 'Held by', heldBy)}
     </div>`;
-  html += `<div class="row">${box(n(), 'Your flights this week · one bubble per $10,000 · limit $250,000', bubbles(t.thisWeek))}</div>`;
-  if (!compact) {
-    html += `<div class="row has-stamp">${box(n(), 'Last week (counts half)', bubbles(t.lastWeek, 'small'))}
-      <div class="stamp" aria-label="Estimate, not server data">Estimate<small>Not server data</small></div></div>`;
-  }
+  const capped = t.thisWeek >= WEEKLY_CAP;
+  const stamp = capped ? `<div class="stamp capped" aria-label="Capped: weekly limit reached">Capped<small>Weekly limit reached</small></div>` : '';
+  html += `<div class="row${capped ? ' has-stamp' : ''}">${box(n(), 'Your flights this week · one bubble per $10,000 · limit $250,000', bubbles(t.thisWeek))}${stamp}</div>`;
 
   html += `<div class="lines">`;
-  if (compact) {
-    html += line(n(), '<b>Your influence</b> (this + ½ last wk)', hand(money(t.influence), 'circled', 'inf'), 'total');
-  } else {
-    const l1 = n();
-    html += line(l1, 'This week, up to $250,000', hand(money(t.thisWeek), '', 'this'));
-    const l2 = n();
-    html += line(l2, 'Last week, up to $250,000', hand(money(t.lastWeek), '', 'last'));
-    html += line(n(), `<b>Your influence</b> (${l1} + ½ × ${l2})`, hand(money(t.influence), 'circled', 'inf'), 'total');
-    html += line(n(), `Room left ($250,000 − ${l1})`, hand(money(t.room), '', 'room'));
-  }
+  const l1 = n();
+  html += line(l1, '<b>Your influence</b> this week', hand(money(t.thisWeek), 'circled', 'this'), 'total');
+  if (!compact) html += line(n(), `Room left ($250,000 − ${l1})`, hand(money(t.room), '', 'room'));
   const ours = hold?.ours;
-  const share = !compact && ours ? `you ${Math.min(999, Math.round((t.influence / ours) * 100))}%, ` : '';
+  const share = !compact && ours ? `you ${Math.min(999, Math.round((t.thisWeek / ours) * 100))}%, ` : '';
   const when = st ? ` <span class="when">(${share}${esc(ago(st.t, now))})</span>` : '';
   html += line(n(), `${esc(us)} total here${when}`, ours !== undefined ? hand(money(ours), '', 'ours') : '');
   html += holdLine(n(), us, hold, nobody);
@@ -327,13 +307,16 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
 // --- Schedule A: every airport ----------------------------------------------------------------
 
 /** A row with nothing that counts: only pad jobs, or a place that can't be held. */
-const noCredit = (t: Tally) => !!t.facility || t.thisRaw + t.lastRaw === 0;
+const noCredit = (t: Tally) => !!t.facility || t.thisRaw === 0;
 
 function scheduleA(s: State, now: number): string[] {
-  const rows = [...tallyAll(s.ledger, now).values()].sort(
-    (a, b) => (noCredit(a) ? 1 : 0) - (noCredit(b) ? 1 : 0) || b.influence - a.influence,
-  );
-  const total = rows.reduce((a, t) => a + t.influence, 0);
+  // Only airports flown to this week: last week's landings don't count toward this week's limit.
+  const week = weekStart(now);
+  const flown = new Set(s.ledger?.entries.filter((e) => e.t >= week).map((e) => e.code));
+  const rows = [...tallyAll(s.ledger, now).values()]
+    .filter((t) => flown.has(t.code))
+    .sort((a, b) => (noCredit(a) ? 1 : 0) - (noCredit(b) ? 1 : 0) || b.thisWeek - a.thisWeek);
+  const total = rows.reduce((a, t) => a + t.thisWeek, 0);
   const unseen = Object.entries(unseenLandings(s.ledger, s.live)).sort(([, a], [, b]) => b - a);
   const listed = unseen.slice(0, 4).map(([c, n]) => `${c} ×${n}`).join(', ');
   const more = unseen.length > 4 ? ` and ${unseen.length - 4} more` : '';
@@ -353,20 +336,19 @@ function scheduleA(s: State, now: number): string[] {
         <td>${hand(t.code, 'fit')}</td>
         <td>${hand(nameOf(s, t.code, t), 'fit')}</td>
         <td class="num">${nc ? hand('N/C') : hand(thousands(t.thisWeek))}</td>
-        <td class="num">${nc ? '' : hand(thousands(t.lastWeek))}</td>
-        <td class="num">${nc ? '' : hand(thousands(t.influence))}</td>
+        <td class="num">${nc ? '' : hand(thousands(t.room))}</td>
         <td>${nc ? '' : `<span class="meter" style="--fill:${(t.thisWeek / WEEKLY_CAP) * 100}%"></span>`}</td>
       </tr>`;
     }
-    for (let r = chunk.length; r < ROWS_PER_PAGE; r++) body += `<tr class="blank">${'<td></td>'.repeat(6)}</tr>`;
+    for (let r = chunk.length; r < ROWS_PER_PAGE; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
     const cont = i > 0 ? ' (continued)' : '';
     return `
       ${formHead(`Schedule A${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
       <table class="ledger">
-        <caption>Last two weeks · amounts in thousands of dollars</caption>
-        <thead><tr><th>Ident</th><th>Airport name</th><th>This wk</th><th>Last wk</th><th>Influence</th><th>Of $250K</th></tr></thead>
+        <caption>This week · amounts in thousands of dollars</caption>
+        <thead><tr><th>Ident</th><th>Airport name</th><th>This wk</th><th>Room left</th><th>Of $250K</th></tr></thead>
         <tbody>${body}</tbody>
-        ${last ? `<tfoot><tr><td colspan="4">Total influence, all airports</td><td class="num">${hand(thousands(total))}</td><td></td></tr></tfoot>` : ''}
+        ${last ? `<tfoot><tr><td colspan="2">Total, all airports</td><td class="num">${hand(thousands(total))}</td><td></td><td></td></tr></tfoot>` : ''}
       </table>
       ${
         last
@@ -391,8 +373,10 @@ function instructions(s: State): string {
       <h3>How the figures are worked out</h3>
       <p>At each landing, the Pocket Kneeboard reads the report. A flight adds the job’s
       <b>base pay</b> (the report’s first line) at the airport where it lands. Bonuses, fees and
-      fuel don’t count. Helipads and seaplane bases count for no one. Weeks start Monday 00:00 UTC;
-      your influence is this week plus half of last week, each up to $250,000.</p>
+      fuel don’t count. Helipads and seaplane bases count for no one. Weeks start Monday 00:00 UTC,
+      and each week you can add up to $250,000 at each airport. This form tracks this week only. The
+      game’s standings also carry half of last week’s influence, but that is already in the company
+      totals it shows, and nothing you fly now can change it.</p>
 
       <h3>These are estimates</h3>
       <p>Only company totals and holders come from the game; the rest is worked out here, as you
