@@ -150,8 +150,9 @@ function formHead(title: string, sub: string, right = 'Form Approved<br>OMB No. 
   </header>`;
 }
 
+/** The footer of sheet `page` of a tab's `of`: "Page 1", or "Page 1 of 3" when the tab has several. */
 const footer = (page: number, of: number) =>
-  `<footer><span>${FORM} ${EDITION} v${esc(VERSION)} · Previous editions are obsolete</span><span>Page ${page} of ${of}</span></footer>`;
+  `<footer><span>${FORM} ${EDITION} v${esc(VERSION)} · Previous editions are obsolete</span><span>Page ${page}${of > 1 ? ` of ${of}` : ''}</span></footer>`;
 
 // --- Airport facts ----------------------------------------------------------------------------
 
@@ -329,7 +330,7 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
   return html;
 }
 
-function worksheet(s: State, now: number, pageNo: number, pages: number): string {
+function worksheet(s: State, now: number): string {
   const l = s.live;
   const enRoute = !l?.at && !!l?.active?.dest;
   const dest = l?.active?.dest;
@@ -375,7 +376,7 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
     ${airportPart(s, other, { n: 30 }, now, true, offer)}
     <div class="grow"></div>
     <p class="see">${logNote(s, now)}</p>
-    ${footer(pageNo, pages)}`;
+    ${footer(1, 1)}`;
 }
 
 /** The worksheet's footnote: the landing log's state, or the usual one. */
@@ -797,22 +798,29 @@ function flow(head: (i: number) => string, cls: string, sections: string[]): str
 const sheetId = (tab: string, k: number) => (k === 0 ? tab : `${tab}-${k + 1}`);
 
 function pages(s: State, now: number): Page[] {
-  const list: (Omit<Page, 'html'> & { body: (n: number, of: number) => string })[] = [];
-  // Each tab files one or more sheets; the footer numbers every sheet of the form.
-  const tab = (id: string, label: string, short: string | undefined, sheets: ((n: number, of: number) => string)[]) =>
-    sheets.forEach((body, i) =>
-      list.push({ id: sheetId(id, i), tab: id, label, short, sheet: i + 1, sheets: sheets.length, body: (n, of) => body(n, of) }),
+  const list: Page[] = [];
+  // Each tab files one or more sheets, numbered within the tab. With several, a strip above the
+  // footer turns to the next or previous one.
+  const tab = (id: string, label: string, short: string | undefined, sheets: string[]) =>
+    sheets.forEach((html, i) =>
+      list.push({
+        id: sheetId(id, i),
+        tab: id,
+        label,
+        short,
+        sheet: i + 1,
+        sheets: sheets.length,
+        html: html + leaf(id, label, i, sheets.length) + footer(i + 1, sheets.length),
+      }),
     );
-  // Several sheets: a strip above the footer turns to the next or previous one.
-  const plain = (id: string, label: string, sheets: string[]) =>
-    sheets.map((html, i) => (n: number, of: number) => html + leaf(id, label, i, sheets.length) + footer(n, of));
-  tab('worksheet', 'Flight', undefined, [(n, of) => worksheet(s, now, n, of)]);
-  tab('log', 'Log', undefined, plain('log', 'Log', logSheets(s, now)));
-  tab('airports', 'Airports', 'ARPTs', plain('airports', 'Airports', airportSheets(s, now)));
-  tab('fleet', 'Fleet', undefined, plain('fleet', 'Fleet', fleetSheets(s, now)));
-  tab('instructions', 'Instructions', 'HELP', plain('instructions', 'Instructions', instructions(s)));
-  tab('settings', 'Settings', undefined, plain('settings', 'Settings', settings(s)));
-  return list.map(({ body, ...p }, i) => ({ ...p, html: body(i + 1, list.length) }));
+  // The Flight page is always one sheet, with its footer built in.
+  list.push({ id: 'worksheet', tab: 'worksheet', label: 'Flight', sheet: 1, sheets: 1, html: worksheet(s, now) });
+  tab('log', 'Log', undefined, logSheets(s, now));
+  tab('airports', 'Airports', 'ARPTs', airportSheets(s, now));
+  tab('fleet', 'Fleet', undefined, fleetSheets(s, now));
+  tab('instructions', 'Instructions', 'HELP', instructions(s));
+  tab('settings', 'Settings', undefined, settings(s));
+  return list;
 }
 
 /**
@@ -900,7 +908,7 @@ function render(s: State) {
           const attrs = `role="tab" id="tab-${p.tab}" data-page="${p.id}" aria-selected="${on}" tabindex="${on ? 0 : -1}"`;
           if (p.tab === 'settings') return `<button type="button" ${attrs} class="tab gear" aria-label="${esc(p.label)}" title="${esc(p.label)}">${GEAR}</button>`;
           const label = p.short ? `<span class="long">${esc(p.label)}</span><span class="short">${esc(p.short)}</span>` : esc(p.label);
-          return `<button type="button" ${attrs} class="tab t${i % 4}"><b>${i + 1}</b> ${label}</button>`;
+          return `<button type="button" ${attrs} class="tab t${i % 4}">${label}</button>`;
         })
         .join('')}
     </nav>

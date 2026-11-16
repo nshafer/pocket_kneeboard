@@ -323,7 +323,7 @@ if (docs) {
     jobs.push(async () => {
       const url = `http://127.0.0.1:${port}/frame?w=500&h=860&${q}&zoom=1`;
       await chromium(['--window-size=500,860', '--force-device-scale-factor=2', `--screenshot=${join(out, `${name}.webp`)}`, url]);
-      return { ok: true, line: `saved   ${name}.png` };
+      return { ok: true, line: `saved   ${name}.webp` };
     });
   }
 }

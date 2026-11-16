@@ -241,10 +241,6 @@ button {
 .tab.t3 {
   background: var(--tab-3);
 }
-.tab b {
-  font-weight: 700;
-  margin-right: 2px;
-}
 .tab small {
   font-size: 7.5px;
   letter-spacing: 0;
@@ -1211,9 +1207,6 @@ footer span:last-child {
   }
 }
 @container (max-width: 360px) {
-  .tab b {
-    display: none;
-  }
   .line {
     font-size: 8.5px;
     gap: 2px;
