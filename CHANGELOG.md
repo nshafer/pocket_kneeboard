@@ -2,6 +2,39 @@
 
 All notable changes to Pocket Kneeboard. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.3.0 (2026-11-16)
+
+### Added
+
+- **Log**: each of your flights this week, with the plane, its net pay (the landing report's total)
+  and the influence it added. Flights on another device come from the landing log, without net pay.
+- **Fleet**: each of your planes and your company's, with its net pay and influence per hour over
+  the last 7 days, and its net pay per hour over its whole life, as the game's hangar shows it.
+- **Settings**, behind the gear tab: Print size and the landing log's URL moved here, and
+  **Backup and restore** saves all your records as a file or to the clipboard, and loads them back,
+  for example into another browser.
+- A page too long for one sheet continues on another. Turn it at the curled corner, where "next"
+  or "prev" is scribbled with an arrow.
+
+### Changed
+
+- The worksheet is now the **Flight** page. On the ground, Part I is where you are and Part II the
+  airport you pick on the map or job board. In the air, Part I is where you took off from, and
+  Part II is your destination, with the job you're flying, until you pick another airport.
+- Schedule A is now **Airports**.
+- The tabs have no numbers, and each page is numbered within its tab: "Page 1", or "Page 2 of 4".
+- The bubbles a job would fill are shaded in pencil.
+- In the air, your origin's standings are read again if you last landed there on another device.
+
+### Fixed
+
+- Part II no longer goes blank while the job board or a map card sits still, and starts over
+  when the game reloads, so it always matches the job the game has picked.
+- The landing log script reads an airport's total again when it hasn't risen yet, for up to 15
+  minutes. Before, many landings were logged as adding $0.
+  `server/repair_zero_landings.py` fixes a log written before then: those landings become
+  "pay not known", and landings whose combined rise you know can share it.
+
 ## 0.2.0 (2026-11-16)
 
 ### Added
