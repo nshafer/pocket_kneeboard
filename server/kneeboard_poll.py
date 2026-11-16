@@ -10,13 +10,16 @@ Each run:
      before the landing.
   3. For a flight past its landing time (t0 + eta, as the game reckons it), GETs the destination's
      standings again. The rise is the influence the landing added, which is the job's base pay up to
-     the weekly limit of $250,000 per pilot per airport.
+     the weekly limit of $250,000 per pilot per airport. The game's API sometimes answers with an
+     older total, and a phone may report its landing late, so a flight whose total hasn't moved is
+     read again on later runs, for up to RETRY_S, keeping the highest total seen.
   4. Rewrites {out}/{id}.json with the landings of the last 15 days.
 
 A landing's "how" says how sure its pay is:
   measured  the only company landing at that airport between the two totals.
   shared    several company landings there in that window: the rise is split evenly.
-  unknown   no total from before it (first seen after landing, or a new week began in between).
+  unknown   no total from before it (first seen after landing, or a new week began in between),
+            or the total never rose (an unpaid flight, or a credit the API never showed us).
 "capped" is set when the pay reached the pilot's weekly limit there, so the job may have paid more.
 
 Only the standard library. Python 3.9+.
@@ -43,6 +46,8 @@ KEEP_DAYS = 15
 MAX_STANDINGS = 12
 # How long after its landing time a flight waits for the server's total to settle.
 SETTLE_S = 120
+# How long a landing whose total hasn't moved keeps being read again before it's logged as unknown.
+RETRY_S = 15 * 60
 
 
 def now_ms() -> int:
@@ -130,6 +135,14 @@ class Poller:
             after = self.total(code)
             if after is None:
                 continue  # out of budget: try next run
+            # A company's total only rises within a week, so a lower reply than before is stale.
+            best = max((e['seen'] for e in group if 'seen' in e), default=None)
+            if best is not None and best > after['v']:
+                after = {'t': after['t'], 'v': best}
+            if self._unmoved(code, group, after) and now < max(e['t'] for e in group) + RETRY_S * 1000:
+                for e in group:
+                    e['seen'] = after['v']
+                continue  # read it again next run
             self._settle(code, group, after)
             for e in group:
                 del flying[e['key']]
@@ -141,17 +154,36 @@ class Poller:
         self.state['landings'] = [l for l in self.state['landings'] if l['t'] >= cutoff]
         self.state['updated'] = now
 
-    def _settle(self, code: str, group: list[dict], after: dict) -> None:
-        # Landings that share a "before" total share its rise. Without one, pay is unknown.
+    def _window(self, code: str, group: list[dict], after: dict):
+        """The earliest "before" total, the rise since it (None without one in the same week), this
+        group's landings between the two totals, and the logged landings there in that window."""
         starts = [e['before'] for e in group if e['before']]
         before = min(starts, key=lambda b: b['t']) if starts else None
-        same_week = before is not None and week_start(before['t']) == week_start(after['t'])
-        # Every company landing at `code` between the two totals, including ones already logged.
-        window = [e for e in group if same_week and before['t'] < e['t'] <= after['t']]
-        earlier = [l for l in self.state['landings'] if same_week and l['to'] == code and before['t'] < l['t'] <= after['t']]
-        rise = max(0, after['v'] - before['v']) if same_week else None
+        if before is None or week_start(before['t']) != week_start(after['t']):
+            return before, None, [], []
+        window = [e for e in group if before['t'] < e['t'] <= after['t']]
+        earlier = [l for l in self.state['landings'] if l['to'] == code and before['t'] < l['t'] <= after['t']]
+        return before, max(0, after['v'] - before['v']), window, earlier
+
+    def _unmoved(self, code: str, group: list[dict], after: dict) -> bool:
+        """True when the total hasn't risen past what's already logged, for landings that should
+        have raised it: worth reading again. Not for a pilot already at the weekly limit there."""
+        _, rise, window, earlier = self._window(code, group, after)
+        if rise is None or not any(self._week_pay(e) < CAP for e in window):
+            return False
+        return rise - sum(l.get('pay') or 0 for l in earlier) <= 0
+
+    def _week_pay(self, e: dict) -> int:
+        """What the pilot's logged landings at e's airport already added this week."""
+        week = week_start(e['t'])
+        return sum(l.get('pay') or 0 for l in self.state['landings']
+                   if l['pid'] == e['pid'] and l['to'] == e['to'] and week_start(l['t']) == week)
+
+    def _settle(self, code: str, group: list[dict], after: dict) -> None:
+        # Landings that share a "before" total share its rise. Without one, pay is unknown.
+        before, rise, window, earlier = self._window(code, group, after)
         for e in group:
-            e = {k: v for k, v in e.items() if k != 'before'}
+            e = {k: v for k, v in e.items() if k not in ('before', 'seen')}
             if rise is None or e['t'] <= before['t'] or e['t'] > after['t']:
                 e.update(how='unknown', pay=None)
             elif len(window) + len(earlier) == 1:
@@ -167,15 +199,15 @@ class Poller:
                 # Who else landed there in the window, so a reader can tell its own from a teammate's.
                 e['with'] = [{'pid': o['pid'], 'cs': o.get('cs')} for o in share + earlier]
             self._cap(e)
+            if e['pay'] == 0:
+                e.update(how='unknown', pay=None)  # the total never rose: we can't tell why
             self.state['landings'].append(e)
 
     def _cap(self, e: dict) -> None:
         """Marks a landing whose pay reached the pilot's weekly limit at that airport."""
         if e['pay'] is None:
             return
-        week = week_start(e['t'])
-        before = sum(l.get('pay') or 0 for l in self.state['landings']
-                     if l['pid'] == e['pid'] and l['to'] == e['to'] and week_start(l['t']) == week)
+        before = self._week_pay(e)
         if before >= CAP:
             e.update(capped=True, pay=None, how='unknown')  # past the limit: the rise says nothing
         elif before + e['pay'] >= CAP:

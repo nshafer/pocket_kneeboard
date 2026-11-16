@@ -100,6 +100,47 @@ class PollerTest(unittest.TestCase):
         self.assertEqual((got[('me', 'EGNH')]['how'], got[('me', 'EGNH')]['pay']), ('measured', 12_000))
         self.assertEqual(got[('me', 'EGNH')]['with'], [{'pid': 'mate', 'cs': 'MATE'}])
 
+    def test_a_late_credit_is_read_again(self):
+        self.g.totals['EGNH'] = 40_000
+        self.g.fly('me', 'EGNH', T, 30)
+        self.run_at(T + MIN)
+        self.g.flights = []
+        self.run_at(T + 33 * MIN)  # landed, but the total hasn't moved yet
+        self.assertEqual(self.state['landings'], [])
+        self.assertIn('me:%d' % T, self.state['flying'])
+        self.g.totals['EGNH'] += 18_400  # the phone reports its landing late
+        self.run_at(T + 36 * MIN)
+        l = self.landings()[('me', 'EGNH')]
+        self.assertEqual((l['how'], l['pay']), ('measured', 18_400))
+        self.assertNotIn('seen', l)
+
+    def test_a_stale_reply_after_a_fresh_one_keeps_the_higher_total(self):
+        self.g.totals['EGNH'] = 40_000
+        self.g.fly('me', 'EGNH', T, 30)
+        self.g.fly('mate', 'EGNH', T, 31)
+        self.run_at(T + MIN)
+        self.g.land('me', 'EGNH', 0)
+        self.run_at(T + 33 * MIN)  # me's total hasn't moved: both wait (mate settles with me)
+        self.g.land('mate', 'EGNH', 0)
+        self.g.totals['EGNH'] = 46_000
+        self.state['flying']['me:%d' % T]['seen'] = 50_000  # an earlier read showed more
+        self.run_at(T + 35 * MIN)
+        got = self.landings()
+        self.assertEqual(got[('me', 'EGNH')]['pay'] + got[('mate', 'EGNH')]['pay'], 10_000)
+
+    def test_a_total_that_never_rises_is_unknown_not_zero(self):
+        self.g.totals['EIME'] = 830
+        self.g.fly('me', 'EIME', T, 6)
+        self.run_at(T + MIN)
+        self.g.land('me', 'EIME', 0)
+        for m in range(9, 6 + 15):
+            self.run_at(T + m * MIN)
+        self.assertEqual(self.state['landings'], [])  # still within the retry window
+        self.run_at(T + (6 + 15) * MIN)
+        l = self.landings()[('me', 'EIME')]
+        self.assertEqual((l['how'], l['pay']), ('unknown', None))
+        self.assertEqual(self.state['flying'], {})
+
     def test_first_seen_after_landing_is_unknown(self):
         self.g.fly('me', 'EGNH', T - 60 * MIN, 30)
         self.run_at(T)
