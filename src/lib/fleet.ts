@@ -11,7 +11,7 @@
 // ledger, and the teammates', from the landing log. Each names the plane and when it took off, so
 // influence per hour divides by the hours of the very flights that added it.
 
-import { WEEKLY_CAP, weekStart } from './ledger';
+import { credited } from './ledger';
 import type { CompanyLog } from './log';
 import type { FleetHistory, FleetPlane, FleetSample, Ledger } from './types';
 
@@ -92,19 +92,10 @@ const flightHours = (t0: number | undefined, t: number) => (t0 !== undefined && 
  */
 export function planeLandings(ledger: Ledger | undefined, log: CompanyLog | undefined): PlaneLanding[] {
   const out: PlaneLanding[] = [];
-  const run = new Map<string, number>();
-  for (const e of [...(ledger?.entries ?? [])].sort((a, b) => a.t - b.t)) {
-    if (e.src === 'manual') continue; // a claim isn't a landing, and names no plane
-    const key = `${weekStart(e.t)}|${e.code}`;
-    const before = run.get(key) ?? 0;
-    let influence = 0;
-    if (e.counted) {
-      influence = Math.max(0, Math.min(e.pay, WEEKLY_CAP - before));
-      run.set(key, before + e.pay);
-    } else if (e.pending === 'teammate') {
-      influence = e.est ?? 0;
-    }
-    if (!e.reg) continue;
+  const added = credited(ledger?.entries ?? []);
+  for (const [e, influence] of added) {
+    // A claim isn't a landing and names no plane, though it uses up room under the limit.
+    if (e.src === 'manual' || !e.reg) continue;
     const unknown = e.pending === 'unknown' || (e.pending === 'teammate' && e.est === undefined);
     out.push({ t: e.t, reg: e.reg, influence, hours: flightHours(e.t0, e.t), est: e.pending === 'teammate', unknown });
   }

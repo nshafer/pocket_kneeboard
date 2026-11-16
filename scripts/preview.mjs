@@ -28,6 +28,8 @@ const entry = (code, name, daysAgo, pay, extra = {}) => ({
   job: `${code}-${daysAgo}-${pay}`,
   reg: 'N872CZ',
   t0: now - daysAgo * day - 40 * 60_000,
+  from: 'EIDW',
+  net: Math.round(pay * 1.03),
   ...extra,
 });
 const data = {
@@ -146,7 +148,7 @@ const data = {
   },
 };
 
-// ?long=1 adds 60 airports flown this week: three flight log sheets, and 40 company planes: two
+// ?long=1 adds 60 airports flown this week: three Airports sheets and four Log sheets, and 40 company planes: two
 // fleet sheets. The flight log lists this week only, so their times fall between Monday 00:00 UTC and now, whatever day the preview runs.
 const monday = (() => {
   const d = new Date(now);
@@ -245,10 +247,13 @@ const views = [
   ['parked', 'page=worksheet&nosel=1'],
   ['log', 'page=log'],
   ['log-long-2', 'page=log-2&long=1'],
-  ['log-long-3', 'page=log-3&long=1'],
+  ['airports', 'page=airports'],
+  ['airports-long-2', 'page=airports-2&long=1'],
+  ['airports-long-3', 'page=airports-3&long=1'],
   ['fleet', 'page=fleet'],
   ['fleet-long-2', 'page=fleet-2&long=1'],
   ['instructions', 'page=instructions'],
+  ['instructions-2', 'page=instructions-2'],
   ['settings', 'page=settings'],
 ];
 // Each Chromium run is mostly waiting, so several run at once. Results print in order.
@@ -271,7 +276,7 @@ for (const [width, height, zoom] of sizes) {
       const over = /data-overflow="(-?\d+)"/.exec(dom)?.[1] ?? 'no report';
       const wide = Number(/data-wide="(-?\d+)"/.exec(dom)?.[1] ?? 0);
       const ok = over !== 'no report' && Number(over) <= 0 && wide <= 0;
-      if (!ok || ['worksheet', 'flying', 'flying-selected', 'parked', 'log-long-2', 'fleet', 'settings'].includes(name)) {
+      if (!ok || ['worksheet', 'flying', 'flying-selected', 'parked', 'log', 'airports-long-2', 'fleet', 'instructions', 'instructions-2', 'settings'].includes(name)) {
         await chromium([win, `--screenshot=${join(out, `${name}-${width}${zoom !== '1' ? `-${zoom}x` : ''}.png`)}`, url]);
       }
       const wideNote = wide > 0 ? `, ${wide}px too wide` : '';

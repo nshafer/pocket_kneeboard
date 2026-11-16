@@ -164,6 +164,12 @@ export interface LedgerEntry {
   reg?: string;
   /** When the flight took off, when known. */
   t0?: number;
+  /** Where the flight came from, when known. */
+  from?: string;
+  /** For a job to a helipad, ship or rig and back: its kind ("remote", "ship", …). */
+  pad?: string;
+  /** Net pay: the landing report's total, after bonuses and fees. Only for landings seen here. */
+  net?: number;
 }
 
 export interface Ledger {

@@ -101,6 +101,7 @@ export function withLog(ledger: Ledger, log: CompanyLog | undefined, weekOf: (t:
       ...(teammate ? { mates: l.with!.filter((w) => w.pid !== ledger.pid).map((w) => w.cs ?? '?') } : {}),
       ...(l.capped ? { capped: true } : {}),
       ...(typeof l.reg === 'string' ? { reg: l.reg } : {}),
+      ...(typeof l.from === 'string' ? { from: l.from } : {}),
       ...(typeof l.t0 === 'number' && l.t0 < l.t ? { t0: l.t0 } : {}),
     });
     seen[l.to] = (seen[l.to] ?? 0) + 1;

@@ -25,7 +25,11 @@ The **Flight** page has two parts:
 - **Remarks** for each airport: your last flight there, who in your company landed there
   recently, and how much your company’s total rose beyond your own logged flights. Tick
   **This was me** to count that rise as yours, for example after flying on your phone.
-- **Flight Log.** Every airport you flew a job to this week, with your influence at each.
+- **Log.** Each flight this week: when, where to, the plane, its net pay (the landing report's
+  total) and the influence it added. Flights on another device come from the landing log, without
+  net pay.
+- **Airports.** Every airport you flew a job to this week, with your influence and the room left
+  at each.
 - **Fleet.** Each of your planes and your company’s, with its net pay per hour and the influence
   it adds per hour over the last 7 days, and its net pay per hour over its whole life (the
   game’s own figure, as the hangar shows it).

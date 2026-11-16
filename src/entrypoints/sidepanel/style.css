@@ -250,26 +250,6 @@ button {
   letter-spacing: 0;
   opacity: 0.75;
 }
-/* A tab over several sheets: the edges of the tabs behind it peek out below and to the right. */
-.tab.stacked {
-  box-shadow:
-    inset 0 4px 4px -3px rgba(0, 0, 0, 0.35),
-    2px 2px 0 -1px color-mix(in srgb, var(--tab-1) 82%, #000),
-    0 2px 3px var(--shadow);
-}
-.tab.stacked.stacked-3 {
-  box-shadow:
-    inset 0 4px 4px -3px rgba(0, 0, 0, 0.35),
-    2px 2px 0 -1px color-mix(in srgb, var(--tab-1) 82%, #000),
-    4px 4px 0 -2px color-mix(in srgb, var(--tab-1) 68%, #000),
-    0 2px 3px var(--shadow);
-}
-.tab.stacked[aria-selected='true'] {
-  box-shadow:
-    2px 2px 0 -1px var(--paper-2),
-    4px 4px 0 -2px color-mix(in srgb, var(--paper-2) 85%, #000),
-    0 3px 4px var(--shadow);
-}
 .tab:hover {
   height: 29px;
 }
@@ -296,6 +276,8 @@ button {
 }
 .tab .short {
   display: none;
+  /* Written as it should read: "ARPTs", with a small s. */
+  text-transform: none;
 }
 
 /* --- Printed form parts ------------------------------------------------------------------- */
@@ -760,62 +742,97 @@ footer span {
 footer span:last-child {
   flex: none;
 }
-/* Leave the corners to the curls. */
-footer:has(~ .curl.next) {
-  padding-right: 30px;
+/* Turning a tab's sheets. The strip above the footer stays free for the scribbled "next" or
+   "prev", whose arrow arcs down onto the curled corner (see leaf() in main.ts). The word, the
+   arrow and the curl are one button, placed against the sheet's bottom corners. */
+.leaf {
+  height: 24px;
+  margin-top: 2px;
 }
-footer:has(~ .curl.prev) {
-  padding-left: 30px;
+.turn {
+  color: var(--pen);
+}
+.scribble {
+  position: absolute;
+  bottom: 26px;
+  z-index: 2;
+  width: 74px;
+  height: 22px;
+  overflow: visible;
+}
+.turn.next .scribble {
+  right: 2px;
+}
+.turn.prev .scribble {
+  left: 2px;
+}
+.scribble text {
+  font: 700 17px var(--f-hand);
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 0.25;
+}
+.scribble path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.turn:hover,
+.turn:focus-visible {
+  color: color-mix(in srgb, var(--pen) 80%, #000);
+}
+.turn:focus-visible {
+  outline: none;
+}
+.turn:focus-visible .scribble {
+  outline: 1px dashed var(--pen);
+  outline-offset: 2px;
 }
 
-/* A sheet's turned-up corner: the flap shows the back of the paper, and the triangle it uncovers
-   shows the sheet underneath. Click it to turn to the next (or previous) sheet. */
+/* A curled corner where there's another sheet: bottom right for the next, bottom left for the
+   previous. Tall and narrow, drawn by CURL in main.ts. It stays in the sheet's margins, clear of
+   the footer's text. */
 .curl {
   position: absolute;
   bottom: 0;
   z-index: 2;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  cursor: pointer;
-  filter: drop-shadow(-1px -1px 1.5px var(--shadow));
-  transition:
-    width 0.12s,
-    height 0.12s;
+  width: 13px;
+  height: 30px;
+  transform-origin: bottom right;
+  transition: transform 0.15s ease-out;
 }
-.curl.next {
+.curl svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(-1.5px -0.5px 1.2px rgba(20, 12, 4, 0.35));
+}
+.curl .under {
+  fill: color-mix(in srgb, var(--shade) 70%, #6b5d45);
+}
+.curl .edge {
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 0.6;
+}
+.turn.next .curl {
   right: 0;
-  background: linear-gradient(to top left, var(--board, #5b3b22) 0 50%, var(--paper-2) 50%, var(--shade) 75%, var(--paper) 100%);
 }
-.curl.prev {
+.turn.prev .curl {
   left: 0;
-  filter: drop-shadow(1px -1px 1.5px var(--shadow));
-  background: linear-gradient(to top right, var(--board, #5b3b22) 0 50%, var(--paper-2) 50%, var(--shade) 75%, var(--paper) 100%);
+  transform-origin: bottom left;
 }
-.curl span {
-  position: absolute;
-  top: 5px;
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--ink);
+.turn.prev .curl svg {
+  transform: scaleX(-1);
 }
-.curl.next span {
-  left: 5px;
-}
-.curl.prev span {
-  right: 5px;
-}
-.curl:hover {
-  width: 40px;
-  height: 40px;
-}
-.curl:focus-visible {
-  outline: 1px dashed var(--pen);
-  outline-offset: -6px;
+.turn:hover .curl,
+.turn:focus-visible .curl {
+  transform: scale(1.25);
 }
 
-/* --- Schedule A ----------------------------------------------------------------------------- */
+/* --- Tables ----------------------------------------------------------------------------- */
 
 .ledger {
   width: 100%;
@@ -1026,6 +1043,61 @@ footer:has(~ .curl.prev) {
   color: var(--ink-soft);
 }
 
+/* The hidden clipboard that long pages are measured on (see flow() in main.ts). */
+.board.probe {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* --- Log ----------------------------------------------------------------------------------- */
+
+.ledger.flights th:nth-child(1) {
+  width: 19%;
+}
+.ledger.flights th:nth-child(2) {
+  width: auto;
+}
+.ledger.flights th:nth-child(3) {
+  width: 21%;
+}
+.ledger.flights th:nth-child(4),
+.ledger.flights th:nth-child(5) {
+  width: 15%;
+}
+.ledger.flights td .hw {
+  font-size: 15px;
+}
+/* A small printed line over the handwriting: the weekday over the time, the origin over the
+   destination. */
+.ledger.flights td.sub {
+  position: relative;
+  max-width: 0;
+}
+.ledger.flights td.sub small {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  right: 2px;
+  font-size: 6.5px;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ledger.flights td.sub .hw {
+  line-height: 15px;
+}
+.ledger.flights td .nc .hw {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 /* --- Settings ------------------------------------------------------------------------------- */
 
 .buttons {
@@ -1129,8 +1201,8 @@ footer:has(~ .curl.prev) {
 .board {
   container-type: inline-size;
 }
-/* Five tabs: below 480px the longer labels give way to short ones ("Log", "Help"). */
-@container (max-width: 480px) {
+/* Six tabs: below 540px the longer labels give way to short ones ("ARPTs", "HELP"). */
+@container (max-width: 540px) {
   .tab .long {
     display: none;
   }

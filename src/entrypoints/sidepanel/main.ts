@@ -12,6 +12,7 @@ import { unlogged } from '@/lib/totals';
 import { withLog } from '@/lib/log';
 import { FLEET_WINDOW, lifetimeRate, perHour, planeLandings, planeWindow, type PlaneWindow } from '@/lib/fleet';
 import { describeBackup, makeBackup, parseBackup, type Backup } from '@/lib/backup';
+import { netsFromDebug, weekFlights, type FlightRow } from '@/lib/flights';
 import {
   KEYS,
   type AirportInfo,
@@ -37,6 +38,8 @@ const VERSION = chrome.runtime.getManifest().version;
 const SELECTED_FOR = 3 * 60_000;
 /** Ruled lines on one sheet of the flight log. Longer lists continue on another sheet. */
 const ROWS_PER_PAGE = 20;
+/** Ruled lines on one sheet of the log, which leaves room for its four remarks. */
+const LOG_ROWS = 17;
 /** Ruled lines on one sheet of the fleet list, section headings and totals included. */
 const FLEET_ROWS = 24;
 
@@ -45,6 +48,8 @@ interface State {
   /** The pilot's ledger with their landings from the landing log merged in. */
   ledger?: Ledger;
   log?: LogState;
+  /** Net pay of recent landings by job id, from the debug record, for older ledger entries. */
+  nets: Map<string, number>;
   standings: Record<string, AirportStandings>;
   airports: Record<string, AirportInfo>;
   totals: TotalsHistory;
@@ -57,7 +62,7 @@ interface Page {
   id: string;
   /** The tab it's filed under. The sheets of the flight log share one tab, and so do the fleet's. */
   tab: string;
-  /** The tab's label, and a shorter one for a narrow clipboard. */
+  /** The tab's label, and a shorter one for a narrow clipboard, shown as written ("ARPTs"). */
   label: string;
   short?: string;
   /** This page's sheet in its tab, and how many sheets the tab holds. */
@@ -381,12 +386,12 @@ function logNote(s: State, now: number) {
   return 'Figures are estimates worked out in this browser, not read from the server. See the instructions.';
 }
 
-// --- The flight log: every airport flown to this week ------------------------------------------
+// --- Airports: every airport flown to this week ------------------------------------------------
 
 /** A row with nothing that counts: only pad jobs, or a place that can't be held. */
 const noCredit = (t: Tally) => !!t.facility || (t.thisRaw === 0 && !t.pending && !t.capped);
 
-function flightLog(s: State, now: number): string[] {
+function airportSheets(s: State, now: number): string[] {
   // Only airports flown to this week: last week's landings don't count toward this week's limit.
   const week = weekStart(now);
   const flown = new Set(s.ledger?.entries.filter((e) => e.t >= week).map((e) => e.code));
@@ -422,7 +427,7 @@ function flightLog(s: State, now: number): string[] {
     for (let r = chunk.length; r < ROWS_PER_PAGE; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
     const cont = i > 0 ? ' (continued)' : '';
     return `
-      ${formHead(`Flight Log${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
+      ${formHead(`Airports${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
       <table class="ledger">
         <caption>This week · amounts in thousands of dollars</caption>
         <thead><tr><th>Ident</th><th>Airport name</th><th>This wk</th><th>Room left</th><th>Of $250K</th></tr></thead>
@@ -432,7 +437,85 @@ function flightLog(s: State, now: number): string[] {
       ${
         last
           ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : `<p class="see">Continued on sheet ${i + 2} of ${chunks.length}. Turn the corner.</p><div class="grow"></div>`
+          : '<div class="grow"></div>'
+      }`;
+  });
+}
+
+// --- The log: every flight this week ------------------------------------------------------------
+
+/** The weekday and time ("Mon", "14:29"), in the browser's time zone. */
+const weekday = (t: number) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short' });
+const hhmm = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+/** A plane's painted name, or its type, for a reg. */
+function planeName(s: State, reg: string | undefined) {
+  if (!reg) return '';
+  const p = s.live?.fleet?.find((x) => x.reg === reg);
+  if (!p) return reg;
+  return p.name ? p.name.charAt(0) + p.name.slice(1).toLowerCase() : typeName(p.type);
+}
+
+function logRowHtml(s: State, f: FlightRow): string {
+  const other = f.other ? '<sup class="q" title="Flown on another device: from the landing log">*</sup>' : '';
+  const when = `<td class="sub"><small>${esc(weekday(f.t))}</small>${hand(hhmm(f.t), '', 'when')}${other}</td>`;
+  if (f.status === 'claim') {
+    return `<tr>${when}<td colspan="3" class="sub"><small>This was me</small>${hand(`Rise at ${f.to}`, 'fit')}</td><td class="num">${hand(thousands(f.influence))}</td></tr>`;
+  }
+  const from = f.pad && f.from === f.to ? `round trip, ${f.pad}` : f.from ? `from ${f.from}` : '';
+  const where = [f.name, f.pad ? `round trip to a ${f.pad} pad` : ''].filter(Boolean).join(' · ');
+  let infl: string;
+  if (f.status === 'nc') infl = `<span class="nc" title="${esc(f.why ?? 'counts for no one')}">${hand('N/C')}</span>`;
+  else if (f.status === 'unknown') infl = `<span title="The landing log couldn’t measure it">${hand('?', 'dash')}</span>`;
+  else if (f.status === 'teammate') {
+    infl = `${hand(thousands(f.influence))}<sup class="q" title="Shared a rise with a teammate: the log’s even split, a guess">≈</sup>`;
+  } else {
+    const cap = f.influence < f.pay ? `<sup class="q" title="Only $${money(f.influence)} of $${money(f.pay)} counted: your weekly limit here">cap</sup>` : '';
+    infl = hand(thousands(f.influence)) + cap;
+  }
+  return `<tr title="${esc(where)}">
+    ${when}
+    <td class="sub"><small>${esc(from)}</small>${hand(f.to, 'fit', 'to')}</td>
+    <td>${hand(planeName(s, f.reg), 'fit', `plane${f.reg}`)}</td>
+    <td class="num">${f.net !== undefined ? hand(thousands(f.net)) : hand('—', 'dash')}</td>
+    <td class="num">${infl}</td>
+  </tr>`;
+}
+
+function logSheets(s: State, now: number): string[] {
+  const rows = weekFlights(s.ledger, now, s.nets);
+  const flights = rows.filter((f) => f.status !== 'claim');
+  const net = flights.reduce((a, f) => a + (f.net ?? 0), 0);
+  const infl = rows.reduce((a, f) => a + (f.status === 'counted' || f.status === 'claim' ? f.influence : 0), 0);
+  const remarks: string[] = [];
+  if (!rows.length) remarks.push(s.live ? 'No flights logged this week yet.' : 'Open Pocket Pilots in this tab and sign in. I’ll log your flights.');
+  else remarks.push('Net: report total. Infl.: base pay that counted.');
+  if (rows.some((f) => f.other)) remarks.push('* Another device (landing log): net not known.');
+  if (rows.some((f) => f.status === 'teammate')) remarks.push('≈ Split with a teammate: a guess, not totalled.');
+  if (rows.some((f) => f.status === 'unknown')) remarks.push('? Influence not measured.');
+  const remark = remarks.map((r, i) => hand(r, 'remark', `log${i}`)).join('');
+
+  const chunks: FlightRow[][] = [];
+  for (let i = 0; i < Math.max(1, rows.length); i += LOG_ROWS) chunks.push(rows.slice(i, i + LOG_ROWS));
+  return chunks.map((chunk, i) => {
+    const last = i === chunks.length - 1;
+    let body = chunk.map((f) => logRowHtml(s, f)).join('');
+    for (let r = chunk.length; r < LOG_ROWS; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
+    const cont = i > 0 ? ' (continued)' : '';
+    const n = flights.length;
+    const foot = `<tfoot><tr><td colspan="3">Total, ${n} flight${n === 1 ? '' : 's'}</td><td class="num">${hand(thousands(net))}</td><td class="num">${hand(thousands(infl))}</td></tr></tfoot>`;
+    return `
+      ${formHead(`Pilot’s Log${cont}`, `Flights this week · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
+      <table class="ledger flights">
+        <caption>This week, newest first · amounts in thousands of dollars</caption>
+        <thead><tr><th>When</th><th>To</th><th>Plane</th><th>Net</th><th>Infl.</th></tr></thead>
+        <tbody>${body}</tbody>
+        ${last ? foot : ''}
+      </table>
+      ${
+        last
+          ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
+          : '<div class="grow"></div>'
       }`;
   });
 }
@@ -546,7 +629,7 @@ function fleetSheets(s: State, now: number): string[] {
       ${
         last
           ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : `<p class="see">Continued on sheet ${i + 2} of ${chunks.length}. Turn the corner.</p><div class="grow"></div>`
+          : '<div class="grow"></div>'
       }`;
   });
 }
@@ -575,53 +658,45 @@ function logForm(s: State) {
     <p class="small">${status}${co ? ` Your company: ${esc(s.live?.coTag ?? '?')}, id ${typed(co)}.` : ''}</p>`;
 }
 
-function instructions(s: State): string {
+function instructions(s: State): string[] {
   const since = s.ledger ? typed(dateUtc(s.ledger.since)) : 'the day you installed it';
-  return `
-    ${formHead(`Instructions for ${FORM}`, 'Read before you rely on this form', 'Keep with<br>the form')}
-    <div class="instr">
-      <h3>Purpose of this form</h3>
+  const head = (i: number) => formHead(`Instructions${i ? ' (continued)' : ` for ${FORM}`}`, 'Read before you rely on this form', 'Keep with<br>the form');
+  return flow(head, 'instr', [
+    `<h3>Purpose of this form</h3>
       <p>Pocket Pilots shows influence by <em>company</em>, never by pilot. This form shows how much
       is <em>yours</em>, and how close you are to the $250,000 a pilot can add at one airport in a
-      week.</p>
-
-      <h3>How the figures are worked out</h3>
+      week.</p>`,
+    `<h3>How the figures are worked out</h3>
       <p>At each landing, the Pocket Kneeboard reads the report. A flight adds the job’s
       <b>base pay</b> (the report’s first line) at the airport where it lands. Bonuses, fees and
       fuel don’t count. Helipads and seaplane bases count for no one. Weeks start Monday 00:00 UTC,
       and each week you can add up to $250,000 at each airport. This form tracks this week only:
-      half of last week also counts, but it’s already in the company totals the game shows.</p>
-
-      <h3>These are estimates</h3>
+      half of last week also counts, but it’s already in the company totals the game shows.</p>`,
+    `<h3>These are estimates</h3>
       <p>Only company totals and holders come from the game; the rest is worked out here. A game
-      update can change the rules.</p>
-
-      <h3>What is missing</h3>
+      update can change the rules.</p>`,
+    `<h3>What is missing</h3>
       <ul>
         <li><b>Flights before ${since}.</b> The game keeps no history by pilot. After two full weeks
         the figures are complete.</li>
         <li><b>Flights on another device</b>, without a landing log (below). <em>Remarks</em> show
         a rise your flights don’t explain; tick <b>This was me</b> to count it.</li>
-      </ul>
-
-      <h3>Flights from other devices</h3>
+      </ul>`,
+    `<h3>Flights from other devices</h3>
       <p class="ragged">A script on a server can log every landing by your company, with the
       influence it added. A flight counts when it was yours alone. Run
       <span class="typed">server/kneeboard_poll.py</span> under cron, or ask whoever runs one for
-      its URL, and enter it in <b>Settings</b> (the gear).</p>
-
-      <h3>Fleet</h3>
-      <p>Net pay and influence per hour for each plane, over the last 7 days and, for pay, its
-      whole life as the game counts it.</p>
-
-      <h3>Paperwork Reduction Act notice</h3>
+      its URL, and enter it in <b>Settings</b> (the gear).</p>`,
+    `<h3>Log, Airports and Fleet</h3>
+      <p><b>Log</b> lists each flight this week with its net pay and the influence it added.
+      <b>Airports</b> adds them up by airport. <b>Fleet</b> gives net pay and influence per hour
+      for each plane, over the last 7 days and, for pay, its whole life as the game counts it.</p>`,
+    `<h3>Paperwork Reduction Act notice</h3>
       <p class="small">This form is kept only in your browser. It reads your callsign, company,
       position, active job, landing counts, planes and company from the game’s save, never your
-      sign-in.
-      It asks the game for airport standings, and reads your company’s landing log. Estimated time
-      to fill in: 0 minutes; it fills in itself.</p>
-    </div>
-    <div class="grow"></div>`;
+      sign-in. It asks the game for airport standings, and reads your company’s landing log.
+      Estimated time to fill in: 0 minutes; it fills in itself.</p>`,
+  ]);
 }
 
 // --- Settings ---------------------------------------------------------------------------------
@@ -662,79 +737,143 @@ function backupForm(): string {
     ${confirm}${status}`;
 }
 
-function settings(s: State): string {
+function settings(s: State): string[] {
   const zoom = zoomOf(s);
-  return `
-    ${formHead('Settings', `Preferences for ${FORM}`, 'Keep with<br>the form')}
-    <div class="instr settings">
-      <h3>Print size</h3>
+  const head = (i: number) => formHead(`Settings${i ? ' (continued)' : ''}`, `Preferences for ${FORM}`, 'Keep with<br>the form');
+  return flow(head, 'instr settings', [
+    `<h3>Print size</h3>
       <div class="size">
         <button type="button" data-zoom="-1" aria-label="Smaller print" ${zoom <= ZOOM_MIN ? 'disabled' : ''}>A−</button>
         ${typed(`${Math.round(zoom * 100)}%`)}
         <button type="button" data-zoom="1" aria-label="Larger print" ${zoom >= ZOOM_MAX ? 'disabled' : ''}>A+</button>
         <span class="small">Makes the whole form larger or smaller, from 50% to 150%.</span>
-      </div>
-
-      <h3>Landing log</h3>
+      </div>`,
+    `<h3>Landing log</h3>
       <p class="ragged">Its URL, with <span class="typed">{id}</span> for your company’s id. See the instructions.</p>
-      ${logForm(s)}
-
-      <h3>Backup and restore</h3>
+      ${logForm(s)}`,
+    `<h3>Backup and restore</h3>
       <p class="ragged">Your records are kept only in this browser. A backup holds all of them, to keep or to
       move to another browser. It holds no sign-in data.</p>
-      ${backupForm()}
-    </div>
-    <div class="grow"></div>`;
+      ${backupForm()}`,
+  ]);
+}
+
+// --- Sheets -----------------------------------------------------------------------------------
+
+/** A hidden clipboard the size of the real one, for measuring what fits on a sheet. */
+let probe: HTMLElement | undefined;
+
+/**
+ * Lays sections of a page out on as many sheets as they need: each sheet takes as many whole
+ * sections as fit under its heading, measured on a hidden sheet of the same size and print size.
+ * `head(i)` is sheet i's heading; `cls` the class of the box around the sections.
+ */
+function flow(head: (i: number) => string, cls: string, sections: string[]): string[] {
+  probe ??= Object.assign(document.body.appendChild(document.createElement('div')), {
+    className: 'board probe',
+    innerHTML: '<div class="stack"><section class="sheet"></section></div><nav class="tabs"></nav>',
+  });
+  probe.setAttribute('aria-hidden', 'true');
+  const sheet = probe.querySelector<HTMLElement>('.sheet')!;
+  const page = (i: number, parts: string[]) => `${head(i)}<div class="${cls}">${parts.join('')}</div><div class="grow"></div>`;
+  // The footer and corners take room at the bottom of every sheet.
+  const fits = (i: number, parts: string[]) => {
+    sheet.innerHTML = page(i, parts) + leaf('probe', '', 1, 3) + footer(9, 9);
+    return sheet.scrollHeight <= sheet.clientHeight;
+  };
+  const sheets: string[][] = [[]];
+  for (const part of sections) {
+    const cur = sheets.at(-1)!;
+    if (cur.length && !fits(sheets.length - 1, [...cur, part])) sheets.push([part]);
+    else cur.push(part);
+  }
+  sheet.innerHTML = '';
+  return sheets.map((parts, i) => page(i, parts));
 }
 
 // --- The clipboard ----------------------------------------------------------------------------
 
-/** Tabs with several sheets: the first sheet's page id, and each later sheet's is `${id}-${n}`. */
-const SHEETED = { log: 'Flight log', fleet: 'Fleet report' } as const;
-const sheetId = (tab: keyof typeof SHEETED, k: number) => (k === 0 ? tab : `${tab}-${k + 1}`);
+/** A tab's first sheet has the tab's id as its page id; each later sheet's is `${tab}-${n}`. */
+const sheetId = (tab: string, k: number) => (k === 0 ? tab : `${tab}-${k + 1}`);
 
 function pages(s: State, now: number): Page[] {
   const list: (Omit<Page, 'html'> & { body: (n: number, of: number) => string })[] = [];
-  list.push({ id: 'worksheet', tab: 'worksheet', label: 'Flight', sheet: 1, sheets: 1, body: (n, of) => worksheet(s, now, n, of) });
-  const sheeted = (tab: keyof typeof SHEETED, label: string, short: string | undefined, sheets: string[]) =>
-    sheets.forEach((html, i) =>
-      list.push({
-        id: sheetId(tab, i),
-        tab,
-        label,
-        short,
-        sheet: i + 1,
-        sheets: sheets.length,
-        body: (n, of) => html + footer(n, of) + curls(tab, i, sheets.length),
-      }),
+  // Each tab files one or more sheets; the footer numbers every sheet of the form.
+  const tab = (id: string, label: string, short: string | undefined, sheets: ((n: number, of: number) => string)[]) =>
+    sheets.forEach((body, i) =>
+      list.push({ id: sheetId(id, i), tab: id, label, short, sheet: i + 1, sheets: sheets.length, body: (n, of) => body(n, of) }),
     );
-  sheeted('log', 'Flight Log', 'Log', flightLog(s, now));
-  sheeted('fleet', 'Fleet', undefined, fleetSheets(s, now));
-  list.push({ id: 'instructions', tab: 'instructions', label: 'Instructions', short: 'Help', sheet: 1, sheets: 1, body: (n, of) => instructions(s) + footer(n, of) });
-  list.push({ id: 'settings', tab: 'settings', label: 'Settings', sheet: 1, sheets: 1, body: (n, of) => settings(s) + footer(n, of) });
+  // Several sheets: a strip above the footer turns to the next or previous one.
+  const plain = (id: string, label: string, sheets: string[]) =>
+    sheets.map((html, i) => (n: number, of: number) => html + leaf(id, label, i, sheets.length) + footer(n, of));
+  tab('worksheet', 'Flight', undefined, [(n, of) => worksheet(s, now, n, of)]);
+  tab('log', 'Log', undefined, plain('log', 'Log', logSheets(s, now)));
+  tab('airports', 'Airports', 'ARPTs', plain('airports', 'Airports', airportSheets(s, now)));
+  tab('fleet', 'Fleet', undefined, plain('fleet', 'Fleet', fleetSheets(s, now)));
+  tab('instructions', 'Instructions', 'HELP', plain('instructions', 'Instructions', instructions(s)));
+  tab('settings', 'Settings', undefined, plain('settings', 'Settings', settings(s)));
   return list.map(({ body, ...p }, i) => ({ ...p, html: body(i + 1, list.length) }));
 }
 
-/** Turned-up corners that leaf through a tab's sheets: back on the left, on on the right. */
-function curls(tab: keyof typeof SHEETED, i: number, n: number) {
-  const what = SHEETED[tab];
-  let html = '';
-  if (i > 0) html += `<button type="button" class="curl prev" data-page="${sheetId(tab, i - 1)}" aria-label="Previous sheet of the ${what.toLowerCase()} (${i} of ${n})"><span>‹ ${i}</span></button>`;
-  if (i < n - 1) html += `<button type="button" class="curl next" data-page="${sheetId(tab, i + 1)}" aria-label="Next sheet of the ${what.toLowerCase()} (${i + 2} of ${n})"><span>${i + 2} ›</span></button>`;
-  return html;
+/**
+ * Turning a tab's sheets: "prev" or "next" scribbled in pen near the bottom corner, with an arrow
+ * that runs out and arcs down onto the sheet's curled corner. Word, arrow and curl are one link, so hovering
+ * any of them lifts the corner. None on a single sheet. The strip they sit over is kept free
+ * above the footer, so the footer keeps its width.
+ */
+function leaf(tab: string, label: string, i: number, n: number) {
+  if (n < 2) return '';
+  const turn = (dir: 'prev' | 'next', k: number, what: string) =>
+    `<button type="button" class="turn ${dir}" data-page="${sheetId(tab, k)}" aria-label="${what}">${SCRIBBLE[dir]}<span class="curl">${CURL}</span></button>`;
+  const prev = i > 0 ? turn('prev', i - 1, `Previous ${esc(label)} sheet (${i} of ${n})`) : '';
+  const next = i < n - 1 ? turn('next', i + 1, `Next ${esc(label)} sheet (${i + 2} of ${n})`) : '';
+  return `<div class="leaf">${prev}${next}</div>`;
 }
+
+/**
+ * "next" and "prev" in pen, each with an arrow that runs out level and arcs down onto the
+ * curled corner below it. Drawn for a 74 × 22 box whose bottom corner sits just above the curl. The
+ * #scrawl filter (index.html) gives the strokes a ballpoint's wobble.
+ */
+const SCRIBBLE = {
+  next: `<svg class="scribble" viewBox="0 0 74 22" aria-hidden="true">
+    <g filter="url(#scrawl)">
+      <text x="1" y="15" transform="rotate(-4 14 12)">next</text>
+      <path d="M30.5 10.5 C 50 9.5, 65.5 9, 67 21"/>
+      <path d="M62.2 16.8 L 67 21.5 L 70.6 15.6"/>
+    </g>
+  </svg>`,
+  prev: `<svg class="scribble" viewBox="0 0 74 22" aria-hidden="true">
+    <g filter="url(#scrawl)">
+      <text x="44" y="15" transform="rotate(3 58 12)">prev</text>
+      <path d="M43.5 10.5 C 24 9.5, 8.5 9, 7 21"/>
+      <path d="M11.8 16.8 L 7 21.5 L 3.4 15.6"/>
+    </g>
+  </svg>`,
+};
+
+/**
+ * A sheet's corner lifted on a curve, drawn for the bottom-right corner (the bottom-left one is
+ * its mirror image). The fold bows across the corner; past it, the sheet underneath shows, and
+ * the back of the paper rolls over as a shaded crescent, lit along its edge.
+ */
+const CURL = `<svg viewBox="0 0 20 44" preserveAspectRatio="none" aria-hidden="true">
+  <path class="under" d="M20 0 C17 14 11 30 0 44 L20 44 Z"/>
+  <path class="back" d="M20 0 C17 14 11 30 0 44 C9 40 14.5 33 17 24 C18.6 17 19.6 9 20 0 Z" fill="url(#curl-back)"/>
+  <path class="edge" d="M0 44 C9 40 14.5 33 17 24 C18.6 17 19.6 9 20 0" fill="none"/>
+</svg>`;
 
 /** A gear, for the settings tab. */
 const GEAR = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54a7.4 7.4 0 0 0-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2"/></svg>`;
 
-/** Page ids from before 0.3.0, when the flight log was "Schedule A". */
+/** Page ids from before 0.3.0, when the airports list was "Schedule A". */
 const OLD_PAGE = /^schedule-a(-\d+)?$/;
 
 function render(s: State) {
   const now = Date.now();
   fitBoard(zoomOf(s));
   const all = pages(s, now);
-  const want = s.prefs.page?.replace(OLD_PAGE, 'log$1');
+  const want = s.prefs.page?.replace(OLD_PAGE, 'airports$1');
   // A sheet that's gone (fewer airports or planes now) falls back to its tab's last sheet.
   const wantTab = want?.replace(/-\d+$/, '');
   const current = all.find((p) => p.id === want) ?? all.filter((p) => p.tab === wantTab).at(-1) ?? all[0]!;
@@ -744,7 +883,7 @@ function render(s: State) {
   // Keep focus on the tab, corner or field that had it (a tab and a corner can point to the same page).
   const active = document.activeElement as HTMLElement | null;
   const focused = active?.dataset.page;
-  const kind = active?.classList.contains('curl') ? '.curl' : '[role="tab"]';
+  const kind = active?.classList.contains('turn') ? `.turn.${active.classList.contains('next') ? 'next' : 'prev'}` : '[role="tab"]';
   const field = active?.dataset.keep;
   const caret = field && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) ? [active.selectionStart, active.selectionEnd] : undefined;
 
@@ -758,12 +897,10 @@ function render(s: State) {
       ${tabs
         .map((p, i) => {
           const on = p === current;
-          const stacked = p.sheets > 1 ? ` stacked${p.sheets > 2 ? ' stacked-3' : ''}` : '';
-          const count = p.sheets > 1 ? ` <small>${p.sheet}/${p.sheets}</small>` : '';
           const attrs = `role="tab" id="tab-${p.tab}" data-page="${p.id}" aria-selected="${on}" tabindex="${on ? 0 : -1}"`;
           if (p.tab === 'settings') return `<button type="button" ${attrs} class="tab gear" aria-label="${esc(p.label)}" title="${esc(p.label)}">${GEAR}</button>`;
           const label = p.short ? `<span class="long">${esc(p.label)}</span><span class="short">${esc(p.short)}</span>` : esc(p.label);
-          return `<button type="button" ${attrs} class="tab t${i % 4}${stacked}"><b>${i + 1}</b> ${label}${count}</button>`;
+          return `<button type="button" ${attrs} class="tab t${i % 4}"><b>${i + 1}</b> ${label}</button>`;
         })
         .join('')}
     </nav>
@@ -782,7 +919,7 @@ function render(s: State) {
 // --- Wiring -----------------------------------------------------------------------------------
 
 async function load(): Promise<State> {
-  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs, KEYS.log, KEYS.fleet]);
+  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs, KEYS.log, KEYS.fleet, KEYS.debug]);
   const live = got[KEYS.live] as Snapshot | undefined;
   const ledgerKey = live ? KEYS.ledger(live.pid) : undefined;
   const saved = ledgerKey ? ((await chrome.storage.local.get(ledgerKey))[ledgerKey] as Ledger | undefined) : undefined;
@@ -796,6 +933,7 @@ async function load(): Promise<State> {
     airports: (got[KEYS.airports] as Record<string, AirportInfo> | undefined) ?? {},
     totals: (got[KEYS.totals] as TotalsHistory | undefined) ?? {},
     fleet: (got[KEYS.fleet] as FleetHistory | undefined) ?? {},
+    nets: netsFromDebug(got[KEYS.debug]),
     selected: got[KEYS.selected] as State['selected'],
     prefs,
     log: log?.co === live?.co ? log : undefined,
@@ -826,7 +964,10 @@ function fitBoard(zoom: number) {
   // Width the same way, measured after the height is set (it decides whether a scrollbar shows).
   root.style.setProperty('--board-w', `${Math.min(600, (root.clientWidth - 16) / zoom)}px`);
 }
-addEventListener('resize', () => state && fitBoard(zoomOf(state)));
+// A new size can move where long pages break onto another sheet, so lay them out again.
+addEventListener('resize', () => state && render(state));
+// Sheets are measured with the form's own fonts: once they load, measure again.
+document.fonts.ready.then(() => state && render(state));
 
 function setPrefs(p: Partial<Prefs>) {
   if (!state) return;

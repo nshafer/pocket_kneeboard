@@ -72,6 +72,9 @@ export function settle(ev: LandingEvent): LedgerEntry | null {
     kind: job.kind,
     src,
     ...(ev.reg ? { reg: ev.reg } : {}),
+    ...(job.from ? { from: job.from } : {}),
+    ...(job.pad ? { pad: job.pad } : {}),
+    ...(ev.result.total !== undefined ? { net: ev.result.total } : {}),
     ...(ev.t0 && ev.t0 < ev.t ? { t0: ev.t0 } : {}),
   };
 }
@@ -103,6 +106,27 @@ export function claim(ledger: Ledger, c: { code: string; name?: string; pay: num
 /** Removes the pilot's claims at `code` from `since` on. */
 export function unclaim(ledger: Ledger, code: string, since: number): Ledger {
   return { ...ledger, entries: ledger.entries.filter((e) => !(e.src === 'manual' && e.code === code && e.t >= since)) };
+}
+
+/**
+ * The influence each entry added: a counted entry's pay up to the room left under the weekly
+ * limit at its airport, in the order they happened (claims included). A landing from the log that
+ * shares a rise with a teammate gets the log's even share, a guess. Anything else adds nothing.
+ */
+export function credited(entries: LedgerEntry[]): Map<LedgerEntry, number> {
+  const out = new Map<LedgerEntry, number>();
+  const run = new Map<string, number>();
+  for (const e of [...entries].sort((a, b) => a.t - b.t)) {
+    const key = `${weekStart(e.t)}|${e.code}`;
+    const before = run.get(key) ?? 0;
+    if (e.counted) {
+      out.set(e, Math.max(0, Math.min(e.pay, WEEKLY_CAP - before)));
+      run.set(key, before + e.pay);
+    } else {
+      out.set(e, e.pending === 'teammate' ? (e.est ?? 0) : 0);
+    }
+  }
+  return out;
 }
 
 export interface Tally {

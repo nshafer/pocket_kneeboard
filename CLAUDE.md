@@ -17,8 +17,10 @@ the exact size. Don't trust `--window-size` alone for narrow layouts.
 - `src/entrypoints/background.ts`: the only writer of `chrome.storage.local` (`kb:*` keys). It
   also enables the side panel on game tabs only.
 - `src/entrypoints/sidepanel/`: the UI, a paper FAA-style form. The user removed night mode. Tabs:
-  Flight (the worksheet), Flight Log, Fleet, Instructions, and a gear for Settings: "Print
-  size" (zooms the clipboard from 50% to 150%), the landing log URL, and backup and restore.
+  Flight (the worksheet), Log (each flight), Airports, Fleet, Instructions, and a gear for
+  Settings: "Print size" (zooms the clipboard from 50% to 150%), the landing log URL, and backup
+  and restore. Any tab can hold several sheets: tables split by rows, and prose pages (Help,
+  Settings) by `flow()`, which measures sections on a hidden sheet of the same size.
 - `src/lib/game.ts` picks fields out of the save and the API replies. `src/lib/ledger.ts` holds
   the weekly influence maths. `src/lib/fleet.ts` holds the per-plane rates, and
   `src/lib/backup.ts` the backup format.
