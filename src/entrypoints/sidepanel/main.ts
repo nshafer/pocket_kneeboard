@@ -41,7 +41,11 @@ interface State {
 
 interface Page {
   id: string;
+  /** The tab it's filed under. Schedule A's sheets share one tab. */
   tab: string;
+  /** This page's sheet in its tab, and how many sheets the tab holds. */
+  sheet: number;
+  sheets: number;
   html: string;
 }
 
@@ -168,27 +172,27 @@ const clock = (t: number, now: number) => {
   return now - t < 18 * 3_600_000 ? time : `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
 };
 
+/** Ruled lines in each part's remarks. */
+const REMARK_LINES = 4;
+
 /**
- * The remarks for one airport, most important first: the company total's rise this week and how
- * much of it this browser logged, with "This was me" to claim the rest; the last flight here; who
- * from the company landed here; missed landings. `brief` is for Part I, which has room for two
- * ruled lines. There, when there's a rise both to claim and to give back, the two check boxes
- * take both lines and the rise goes in small print.
+ * The remarks for one airport, most important first, one per ruled line: the company total's
+ * rise this week and how much of it this browser logged, with "This was me" to claim the rest;
+ * the last flight here; who from the company landed here; missed landings. A remark too long for
+ * its line ends in "…", with the whole text in its tooltip.
  */
-function partRemarks(s: State, code: string | undefined, now: number, extra: string[] = [], brief = false) {
+function partRemarks(s: State, code: string | undefined, now: number, extra: string[] = []) {
   if (!code) return '';
   const us = s.live?.coTag ?? 'Company';
   const items: string[] = [];
-  const note = (t: string, i: number) => hand(t, 'remark', `remark${i}`);
+  const note = (t: string, i: number) => hand(t, 'remark', `remark${i}`).replace('<span ', `<span title="${esc(t)}" `);
 
   const u = unlogged(s.totals, s.ledger, code, now);
   if (u && u.rise > 0) {
-    const both = brief && u.others > 0 && u.claimed > 0;
     const notMine = u.others > 0 ? `, $${money(u.others)} not` : '';
-    if (!both) items.push(note(`${us} here +$${money(u.rise)} since ${clock(u.from.t, now)}: $${money(u.mine)} logged as mine${notMine}.`, 0));
-    const why = both ? `(${esc(us)} +$${money(u.rise)} here since ${clock(u.from.t, now)}, $${money(u.mine)} logged)` : '(adds it to my influence)';
+    items.push(note(`${us} here +$${money(u.rise)} since ${clock(u.from.t, now)}: $${money(u.mine)} logged as mine${notMine}.`, 0));
     if (u.others > 0) {
-      items.push(`<button type="button" class="claim" data-claim="${esc(code)}">${cb(false)}This was me ${hand(`$${money(u.others)}`, '', 'claim')} <small>${why}</small></button>`);
+      items.push(`<button type="button" class="claim" data-claim="${esc(code)}">${cb(false)}This was me ${hand(`$${money(u.others)}`, '', 'claim')} <small>(adds it to my influence)</small></button>`);
     }
     if (u.claimed > 0) {
       items.push(`<button type="button" class="claim" data-unclaim="${esc(code)}">${cb(true)}This was me ${hand(`$${money(u.claimed)}`, '', 'claimed')} <small>(untick to take it back)</small></button>`);
@@ -205,7 +209,7 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
   const unseen = unseenLandings(s.ledger, s.live)[code];
   if (unseen) items.push(note(`${unseen} landing${unseen > 1 ? 's' : ''} here I didn’t see (other device?).`, 22));
   if (!items.length && s.live) items.push(note('No flights logged here yet.', 23));
-  return (brief ? items.slice(0, 2) : items).join('');
+  return items.slice(0, REMARK_LINES).join('');
 }
 
 function airportPart(s: State, code: string | undefined, num: { n: number }, now: number, compact = false, sel?: Selected) {
@@ -263,7 +267,7 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
   else if (t.noCredit) extra.push(`Plus $${money(t.noCredit)} in ${t.why ?? 'pad'} jobs here, which count for no one.`);
 
   const r = n();
-  html += `<div class="row ${compact ? 'grow' : 'notes'}">${box(r, 'Remarks', partRemarks(s, code, now, extra, !compact), 'remarks ruled')}</div>`;
+  html += `<div class="row notes">${box(r, 'Remarks', partRemarks(s, code, now, extra), 'remarks ruled')}</div>`;
   return html;
 }
 
@@ -300,6 +304,7 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
     ${airportPart(s, primary, { n: 5 }, now)}
     <h2 class="bar">Part II — Other airport <span class="sub">${sel ? `(selected ${selVia} ${esc(ago(sel.t, now))})` : '(pick one on the map or job board)'}</span></h2>
     ${airportPart(s, sel?.code, { n: 30 }, now, true, sel)}
+    <div class="grow"></div>
     <p class="see">Figures are estimates worked out in this browser, not read from the server. See the instructions.</p>
     ${footer(pageNo, pages)}`;
 }
@@ -353,7 +358,7 @@ function scheduleA(s: State, now: number): string[] {
       ${
         last
           ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : `<p class="see">Continued on the next page.</p><div class="grow"></div>`
+          : `<p class="see">Continued on sheet ${i + 2} of ${chunks.length}. Turn the corner.</p><div class="grow"></div>`
       }`;
   });
 }
@@ -406,44 +411,67 @@ function instructions(s: State): string {
 
 function pages(s: State, now: number): Page[] {
   const sched = scheduleA(s, now);
-  const list: { id: string; tab: string; body: (n: number, of: number) => string }[] = [];
-  list.push({ id: 'worksheet', tab: 'Worksheet', body: (n, of) => worksheet(s, now, n, of) });
+  const list: (Omit<Page, 'html'> & { body: (n: number, of: number) => string })[] = [];
+  list.push({ id: 'worksheet', tab: 'Worksheet', sheet: 1, sheets: 1, body: (n, of) => worksheet(s, now, n, of) });
   sched.forEach((html, i) =>
     list.push({
       id: i === 0 ? 'schedule-a' : `schedule-a-${i + 1}`,
-      tab: i === 0 ? 'Sched. A' : `A (${i + 1})`,
-      body: (n, of) => html + footer(n, of),
+      tab: 'Sched. A',
+      sheet: i + 1,
+      sheets: sched.length,
+      body: (n, of) => html + footer(n, of) + curls(i, sched.length),
     }),
   );
-  list.push({ id: 'instructions', tab: 'Instructions', body: (n, of) => instructions(s) + footer(n, of) });
-  return list.map((p, i) => ({ id: p.id, tab: p.tab, html: p.body(i + 1, list.length) }));
+  list.push({ id: 'instructions', tab: 'Instructions', sheet: 1, sheets: 1, body: (n, of) => instructions(s) + footer(n, of) });
+  return list.map((p, i) => ({ id: p.id, tab: p.tab, sheet: p.sheet, sheets: p.sheets, html: p.body(i + 1, list.length) }));
+}
+
+/** Turned-up corners that leaf through Schedule A's sheets: back on the left, on on the right. */
+function curls(i: number, n: number) {
+  const id = (k: number) => (k === 0 ? 'schedule-a' : `schedule-a-${k + 1}`);
+  let html = '';
+  if (i > 0) html += `<button type="button" class="curl prev" data-page="${id(i - 1)}" aria-label="Previous sheet of Schedule A (${i} of ${n})"><span>‹ ${i}</span></button>`;
+  if (i < n - 1) html += `<button type="button" class="curl next" data-page="${id(i + 1)}" aria-label="Next sheet of Schedule A (${i + 2} of ${n})"><span>${i + 2} ›</span></button>`;
+  return html;
 }
 
 function render(s: State) {
   const now = Date.now();
   fitBoard(zoomOf(s));
   const all = pages(s, now);
-  const current = all.find((p) => p.id === s.prefs.page) ?? all[0]!;
+  // A Schedule A sheet that's gone (fewer airports now) falls back to its last sheet.
+  const current =
+    all.find((p) => p.id === s.prefs.page) ??
+    (s.prefs.page?.startsWith('schedule-a') ? all.filter((p) => p.tab === 'Sched. A').at(-1) : undefined) ??
+    all[0]!;
+  // One tab per kind of page. A tab with several sheets opens on the one showing, or its first.
+  const tabs = all.filter((p) => p.sheet === 1).map((p) => (current.tab === p.tab ? current : p));
   const app = document.getElementById('app')!;
-  const focused = (document.activeElement as HTMLElement | null)?.dataset.page;
+  // Keep focus on the tab or corner that had it (they can point to the same page).
+  const active = document.activeElement as HTMLElement | null;
+  const focused = active?.dataset.page;
+  const kind = active?.classList.contains('curl') ? '.curl' : '[role="tab"]';
 
   app.innerHTML = `
   <div class="board">
     <div class="clip" aria-hidden="true"><i></i></div>
     <div class="stack">
-      <section class="sheet" id="sheet" role="tabpanel" aria-labelledby="tab-${current.id}">${current.html}</section>
+      <section class="sheet" id="sheet" role="tabpanel" aria-labelledby="tab-${current.tab === 'Sched. A' ? 'schedule-a' : current.id}">${current.html}</section>
     </div>
     <nav class="tabs" role="tablist" aria-label="Pages">
-      ${all
-        .map(
-          (p, i) => `<button type="button" role="tab" id="tab-${p.id}" data-page="${p.id}"
-            aria-selected="${p === current}" tabindex="${p === current ? 0 : -1}"
-            class="tab t${i % 4}"><b>${i + 1}</b> ${esc(p.tab)}</button>`,
-        )
+      ${tabs
+        .map((p, i) => {
+          const on = p === current;
+          const stacked = p.sheets > 1 ? ` stacked${p.sheets > 2 ? ' stacked-3' : ''}` : '';
+          const count = p.sheets > 1 ? ` <small>${p.sheet}/${p.sheets}</small>` : '';
+          return `<button type="button" role="tab" id="tab-${p.tab === 'Sched. A' ? 'schedule-a' : p.id}" data-page="${p.id}"
+            aria-selected="${on}" tabindex="${on ? 0 : -1}"
+            class="tab t${i % 4}${stacked}"><b>${i + 1}</b> ${esc(p.tab)}${count}</button>`;
+        })
         .join('')}
     </nav>
   </div>`;
-  if (focused) app.querySelector<HTMLElement>(`[data-page="${focused}"]`)?.focus();
+  if (focused) app.querySelector<HTMLElement>(`${kind}[data-page="${focused}"]`)?.focus();
 }
 
 // --- Wiring -----------------------------------------------------------------------------------
@@ -532,7 +560,7 @@ document.addEventListener('keydown', (e) => {
     e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
   e.preventDefault();
   setPrefs({ page: tabs[next]!.dataset.page });
-  document.querySelector<HTMLElement>(`[data-page="${tabs[next]!.dataset.page}"]`)?.focus();
+  document.querySelector<HTMLElement>(`[role="tab"][data-page="${tabs[next]!.dataset.page}"]`)?.focus();
 });
 
 chrome.storage.onChanged.addListener((_c, area) => area === 'local' && refresh());

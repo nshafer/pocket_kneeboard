@@ -95,10 +95,15 @@ const data = {
   },
 };
 
-// ?long=1 adds enough airports to need a second Schedule A page.
-for (let i = 0; i < 26; i++) {
-  const code = `EG${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`;
-  (data.long ??= []).push(entry(code, `Sample Field ${i + 1}`, (i % 9) + 0.5, 5_000 + i * 3_100));
+// ?long=1 adds 60 airports flown this week: three Schedule A sheets. Schedule A lists this week
+// only, so their times fall between Monday 00:00 UTC and now, whatever day the preview runs.
+const monday = (() => {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - ((d.getUTCDay() + 6) % 7) * day;
+})();
+for (let i = 0; i < 60; i++) {
+  const code = `E${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`;
+  (data.long ??= []).push(entry(code, `Sample Field ${i + 1}`, (now - monday) * (i + 1) / 61 / day, 5_000 + i * 3_100));
 }
 
 const stub = (q) => {
@@ -173,6 +178,7 @@ const views = [
   ['worksheet', 'page=worksheet'],
   ['schedule', 'page=schedule-a'],
   ['schedule-long-2', 'page=schedule-a-2&long=1'],
+  ['schedule-long-3', 'page=schedule-a-3&long=1'],
   ['instructions', 'page=instructions'],
 ];
 // Each Chromium run is mostly waiting, so several run at once. Results print in order.
@@ -195,7 +201,7 @@ for (const [width, height, zoom] of sizes) {
       const over = /data-overflow="(-?\d+)"/.exec(dom)?.[1] ?? 'no report';
       const wide = Number(/data-wide="(-?\d+)"/.exec(dom)?.[1] ?? 0);
       const ok = over !== 'no report' && Number(over) <= 0 && wide <= 0;
-      if (!ok || name === 'worksheet') {
+      if (!ok || name === 'worksheet' || name === 'schedule-long-2') {
         await chromium([win, `--screenshot=${join(out, `${name}-${width}${zoom !== '1' ? `-${zoom}x` : ''}.png`)}`, url]);
       }
       const wideNote = wide > 0 ? `, ${wide}px too wide` : '';

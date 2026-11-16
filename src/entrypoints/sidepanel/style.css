@@ -245,6 +245,31 @@ button {
   font-weight: 700;
   margin-right: 2px;
 }
+.tab small {
+  font-size: 7.5px;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+/* A tab over several sheets: the edges of the tabs behind it peek out below and to the right. */
+.tab.stacked {
+  box-shadow:
+    inset 0 4px 4px -3px rgba(0, 0, 0, 0.35),
+    2px 2px 0 -1px color-mix(in srgb, var(--tab-1) 82%, #000),
+    0 2px 3px var(--shadow);
+}
+.tab.stacked.stacked-3 {
+  box-shadow:
+    inset 0 4px 4px -3px rgba(0, 0, 0, 0.35),
+    2px 2px 0 -1px color-mix(in srgb, var(--tab-1) 82%, #000),
+    4px 4px 0 -2px color-mix(in srgb, var(--tab-1) 68%, #000),
+    0 2px 3px var(--shadow);
+}
+.tab.stacked[aria-selected='true'] {
+  box-shadow:
+    2px 2px 0 -1px var(--paper-2),
+    4px 4px 0 -2px color-mix(in srgb, var(--paper-2) 85%, #000),
+    0 3px 4px var(--shadow);
+}
 .tab:hover {
   height: 29px;
 }
@@ -428,7 +453,7 @@ button {
 /* "This was me": a printed check box on a ruled remarks line. */
 .claim {
   display: flex;
-  height: 22px;
+  height: var(--ruled, 22px);
   width: 100%;
   text-transform: none;
   font-size: 9.5px;
@@ -449,12 +474,13 @@ button {
   display: flex;
   gap: 5px;
   width: 100%;
-  padding: 3px 0 0;
+  padding: 1px 0 0;
 }
 .group {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 12px));
+  justify-content: space-between;
   gap: 2px;
   position: relative;
   padding-bottom: 9px;
@@ -499,7 +525,7 @@ button {
   align-items: flex-end;
   gap: 4px;
   padding: 0 5px 0 0;
-  min-height: 23px;
+  min-height: 21px;
   font-size: 9.5px;
 }
 .ln {
@@ -534,6 +560,9 @@ button {
   align-items: flex-end;
   border-bottom: 1px solid var(--ink);
   padding: 0 0 0 0;
+}
+.amt .hw {
+  line-height: 1.05;
 }
 .amt > i {
   font-style: normal;
@@ -689,6 +718,69 @@ footer {
   font-size: 7px;
   letter-spacing: 0.02em;
 }
+footer span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+footer span:last-child {
+  flex: none;
+}
+/* Leave the corners to the curls. */
+footer:has(~ .curl.next) {
+  padding-right: 30px;
+}
+footer:has(~ .curl.prev) {
+  padding-left: 30px;
+}
+
+/* A sheet's turned-up corner: the flap shows the back of the paper, and the triangle it uncovers
+   shows the sheet underneath. Click it to turn to the next (or previous) sheet. */
+.curl {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  filter: drop-shadow(-1px -1px 1.5px var(--shadow));
+  transition:
+    width 0.12s,
+    height 0.12s;
+}
+.curl.next {
+  right: 0;
+  background: linear-gradient(to top left, var(--board, #5b3b22) 0 50%, var(--paper-2) 50%, var(--shade) 75%, var(--paper) 100%);
+}
+.curl.prev {
+  left: 0;
+  filter: drop-shadow(1px -1px 1.5px var(--shadow));
+  background: linear-gradient(to top right, var(--board, #5b3b22) 0 50%, var(--paper-2) 50%, var(--shade) 75%, var(--paper) 100%);
+}
+.curl span {
+  position: absolute;
+  top: 5px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.curl.next span {
+  left: 5px;
+}
+.curl.prev span {
+  right: 5px;
+}
+.curl:hover {
+  width: 40px;
+  height: 40px;
+}
+.curl:focus-visible {
+  outline: 1px dashed var(--pen);
+  outline-offset: -6px;
+}
 
 /* --- Schedule A ----------------------------------------------------------------------------- */
 
@@ -816,7 +908,7 @@ footer {
 
 /* --- Remarks -------------------------------------------------------------------------------- */
 
-/* Part I's remarks have two ruled lines; Part II's take whatever room is left on the page. */
+/* Each part's remarks: four ruled lines. Schedule A's take whatever room is left on the page. */
 .row.grow {
   min-height: 22px;
 }
@@ -830,13 +922,15 @@ footer {
   display: block;
   overflow: hidden;
   padding-top: 1px;
-  background: repeating-linear-gradient(to bottom, transparent 0 21px, var(--rule) 21px 22px);
+  background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--ruled, 22px) - 1px), var(--rule) calc(var(--ruled, 22px) - 1px) var(--ruled, 22px));
 }
-/* Part I's remarks: two ruled lines, one remark each, so a long remark ends in "…" instead of
-   wrapping out of sight. */
+/* One remark per line, so a long remark ends in "…" instead of wrapping out of sight. */
+.row.notes {
+  --ruled: 20px;
+}
 .row.notes .val {
   flex: none;
-  min-height: 44px;
+  height: calc(4 * var(--ruled));
 }
 .row.notes .hw.remark,
 .row.notes .claim small {
@@ -850,7 +944,7 @@ footer {
 .ruled .hw.remark {
   display: block;
   font-size: 18px;
-  line-height: 22px;
+  line-height: var(--ruled, 22px);
   transform: rotate(var(--r, 0deg));
   transform-origin: left;
 }
