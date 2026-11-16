@@ -80,6 +80,10 @@ export default defineContentScript({
       if (e.source === window && e.data?.__PocketKneeboard === 1 && e.data.type === 'hello') {
         lastKey = '';
         quietly(() => takeSnapshot(localStorage.getItem(SAVE_KEY)));
+        // The game (re)loaded: the selection from before is gone, and the board may come up with
+        // another job picked. Part II waits for whatever this page draws.
+        post({ type: 'unselected', payload: { t: Date.now() } });
+        shownKey = ''; // and send what's selected now again, after the clear
       }
     });
     setTimeout(() => quietly(() => takeSnapshot(localStorage.getItem(SAVE_KEY))), 0);
