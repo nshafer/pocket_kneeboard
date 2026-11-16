@@ -8,7 +8,7 @@
 
 import type { HookMessage } from '@/lib/types';
 
-const TYPES = new Set<HookMessage['type']>(['snapshot', 'landing', 'standings', 'airport']);
+const TYPES = new Set<HookMessage['type']>(['snapshot', 'landing', 'standings', 'airport', 'unselected']);
 
 export default defineContentScript({
   matches: ['https://pilots.nimblebit.com/*'],

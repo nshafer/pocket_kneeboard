@@ -26,6 +26,8 @@ const entry = (code, name, daysAgo, pay, extra = {}) => ({
   counted: true,
   src: 'report',
   job: `${code}-${daysAgo}-${pay}`,
+  reg: 'N872CZ',
+  t0: now - daysAgo * day - 40 * 60_000,
   ...extra,
 });
 const data = {
@@ -40,6 +42,21 @@ const data = {
     at: { code: 'EIDW', name: 'Dublin' },
     active: null,
     visited: { EIDW: { n: 9, name: 'Dublin' }, EGNH: { n: 3, name: 'Blackpool' }, EGOW: { n: 1, name: 'Woodvale' } },
+    plane: 'N872CZ',
+    fleet: [
+      { reg: 'N872CZ', type: 'kite', name: 'SWINGER', at: 'EIDW', hours: 22.1, paid: 609_960, co: false },
+      { reg: 'N503KU', type: 'petrel', name: 'SEAWING', at: 'EGBT', hours: 18.9, paid: 324_360, co: false },
+      { reg: 'N928HL', type: 'puffin', at: 'LFXU', hours: 18.5, paid: 251_640, co: false },
+      { reg: 'N158WE', type: 'skylark', at: 'EGNS', hours: 4.05, paid: 0, co: false },
+      { reg: 'N623YH', type: 'sparrow', at: 'EGOE', hours: 0.04, paid: 0, co: false },
+      { reg: 'N706BS', type: 'shire', name: 'Merry', at: 'EGSS', hours: 113.7, paid: 161_130, paidH: 7.19, co: true },
+      { reg: 'N869CV', type: 'shire', name: 'Pippin', at: 'EGCC', hours: 72.8, co: true },
+      { reg: 'N566AN', type: 'zephyr', hours: 117.0, paid: 3_252_810, paidH: 74.8, co: true },
+      { reg: 'N622RM', type: 'zephyr', name: 'NO SUCH AIRPLANE', at: 'HESX', hours: 116.3, paid: 3_823_300, paidH: 80.36, co: true },
+      { reg: 'N461AG', type: 'stratus', name: 'Herugrim', hours: 73.8, paid: 2_365_070, paidH: 71.36, co: true },
+      { reg: 'N483HL', type: 'pelican', hours: 39.5, paid: 2_600_870, paidH: 39.5, co: true },
+      { reg: 'N730MS', type: 'skyliner', name: 'HYDRA', hours: 0, co: true },
+    ],
   },
   [`kb:ledger:${pid}`]: {
     pid,
@@ -73,8 +90,12 @@ const data = {
       co: 'c1',
       updated: now - 60_000,
       landings: [
-        { key: 'demo:1', pid, cs: 'N1C0', to: 'EIDW', t0: now - 90 * 60_000, t: now - 50 * 60_000, how: 'shared', pay: 8_000, with: [{ pid: 'm8', cs: 'MATE' }] },
-        { key: 'demo:2', pid, cs: 'N1C0', to: 'EGNH', t0: now - 30 * 60_000, t: now - 10 * 60_000, how: 'unknown', pay: null },
+        { key: 'demo:1', pid, cs: 'N1C0', to: 'EIDW', t0: now - 90 * 60_000, t: now - 50 * 60_000, how: 'shared', pay: 8_000, with: [{ pid: 'm8', cs: 'MATE' }], reg: 'N503KU' },
+        { key: 'demo:2', pid, cs: 'N1C0', to: 'EGNH', t0: now - 30 * 60_000, t: now - 10 * 60_000, how: 'unknown', pay: null, reg: 'N503KU' },
+        { key: 'm8:1', pid: 'm8', cs: 'MATE', to: 'EGLL', t0: now - 3 * day, t: now - 3 * day + 2 * 3_600_000, how: 'measured', pay: 96_000, reg: 'N622RM' },
+        { key: 'm8:2', pid: 'm8', cs: 'MATE', to: 'EHAM', t0: now - 2 * day, t: now - 2 * day + 3 * 3_600_000, how: 'measured', pay: 141_000, reg: 'N622RM' },
+        { key: 'm9:1', pid: 'm9', cs: 'ACE', to: 'LFPG', t0: now - day, t: now - day + 4 * 3_600_000, how: 'measured', pay: 188_500, reg: 'N566AN' },
+        { key: 'm9:2', pid: 'm9', cs: 'ACE', to: 'EGCC', t0: now - 4 * day, t: now - 4 * day + 3_600_000, how: 'measured', pay: 42_300, reg: 'N706BS' },
       ],
     },
   },
@@ -108,10 +129,25 @@ const data = {
       { t: now - 2 * 60_000, v: 44_000 },
     ],
   },
+  // Each plane's hours and pay eight days ago: the start of the Fleet page's last 7 days.
+  'kb:fleet': {
+    N872CZ: [{ t: now - 8 * day, hours: 15.6, paid: 380_000 }],
+    N503KU: [{ t: now - 8 * day, hours: 16.4, paid: 270_000 }],
+    N928HL: [{ t: now - 8 * day, hours: 18.5, paid: 251_640 }],
+    N158WE: [{ t: now - 8 * day, hours: 4.05, paid: 0 }],
+    N623YH: [{ t: now - 8 * day, hours: 0.04, paid: 0 }],
+    N706BS: [{ t: now - 8 * day, hours: 110.2, paid: 120_000, paidH: 5.1 }],
+    N869CV: [{ t: now - 8 * day, hours: 70.1 }],
+    N566AN: [{ t: now - 8 * day, hours: 101.0, paid: 2_800_000, paidH: 63.3 }],
+    N622RM: [{ t: now - 8 * day, hours: 104.9, paid: 3_400_000, paidH: 70.0 }],
+    N461AG: [{ t: now - 8 * day, hours: 73.8, paid: 2_365_070, paidH: 71.36 }],
+    N483HL: [{ t: now - 8 * day, hours: 30.0, paid: 1_900_000, paidH: 30.0 }],
+    N730MS: [{ t: now - 2 * day, hours: 0 }],
+  },
 };
 
-// ?long=1 adds 60 airports flown this week: three Schedule A sheets. Schedule A lists this week
-// only, so their times fall between Monday 00:00 UTC and now, whatever day the preview runs.
+// ?long=1 adds 60 airports flown this week: three flight log sheets, and 40 company planes: two
+// fleet sheets. The flight log lists this week only, so their times fall between Monday 00:00 UTC and now, whatever day the preview runs.
 const monday = (() => {
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - ((d.getUTCDay() + 6) % 7) * day;
@@ -125,6 +161,19 @@ const stub = (q) => {
   const store = { ...data, 'kb:prefs': { zoom: Number(q.get('zoom') ?? 1), page: q.get('page') ?? 'worksheet' } };
   const ledger = store[`kb:ledger:${pid}`];
   store[`kb:ledger:${pid}`] = { ...ledger, entries: [...ledger.entries, ...(q.get('long') ? data.long : [])] };
+  // ?flying=1: in flight from EIDW to EGLL. ?nosel=1: nothing selected on the map or job board.
+  if (q.get('flying')) {
+    store['kb:live'] = {
+      ...store['kb:live'],
+      at: null,
+      active: { id: 'f1', from: { code: 'EIDW', name: 'Dublin' }, dest: { code: 'EGLL', name: 'London Heathrow' }, job: { id: 'J9', to: 'EGLL', pay: 21_400 }, t0: now - 20 * 60_000 },
+    };
+  }
+  if (q.get('nosel')) delete store['kb:selected'];
+  if (q.get('long')) {
+    const extra = Array.from({ length: 40 }, (_, i) => ({ reg: `N${100 + i}XX`, type: ['shire', 'zephyr', 'kite', 'puffin'][i % 4], at: 'EGLL', hours: 10 + i, paid: 50_000 * (i + 1), paidH: 5 + i, co: true }));
+    store['kb:live'] = { ...store['kb:live'], fleet: [...store['kb:live'].fleet, ...extra] };
+  }
   delete store.long;
   return `<script>
   const data = ${JSON.stringify(store)};
@@ -191,10 +240,16 @@ const chromium = (args) =>
 
 const views = [
   ['worksheet', 'page=worksheet'],
-  ['schedule', 'page=schedule-a'],
-  ['schedule-long-2', 'page=schedule-a-2&long=1'],
-  ['schedule-long-3', 'page=schedule-a-3&long=1'],
+  ['flying', 'page=worksheet&flying=1&nosel=1'],
+  ['flying-selected', 'page=worksheet&flying=1'],
+  ['parked', 'page=worksheet&nosel=1'],
+  ['log', 'page=log'],
+  ['log-long-2', 'page=log-2&long=1'],
+  ['log-long-3', 'page=log-3&long=1'],
+  ['fleet', 'page=fleet'],
+  ['fleet-long-2', 'page=fleet-2&long=1'],
   ['instructions', 'page=instructions'],
+  ['settings', 'page=settings'],
 ];
 // Each Chromium run is mostly waiting, so several run at once. Results print in order.
 const jobs = [];
@@ -216,7 +271,7 @@ for (const [width, height, zoom] of sizes) {
       const over = /data-overflow="(-?\d+)"/.exec(dom)?.[1] ?? 'no report';
       const wide = Number(/data-wide="(-?\d+)"/.exec(dom)?.[1] ?? 0);
       const ok = over !== 'no report' && Number(over) <= 0 && wide <= 0;
-      if (!ok || name === 'worksheet' || name === 'schedule-long-2') {
+      if (!ok || ['worksheet', 'flying', 'flying-selected', 'parked', 'log-long-2', 'fleet', 'settings'].includes(name)) {
         await chromium([win, `--screenshot=${join(out, `${name}-${width}${zoom !== '1' ? `-${zoom}x` : ''}.png`)}`, url]);
       }
       const wideNote = wide > 0 ? `, ${wide}px too wide` : '';

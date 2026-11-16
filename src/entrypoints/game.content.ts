@@ -48,6 +48,8 @@ export default defineContentScript({
     let lastKey = '';
     // Jobs seen in recent saves. The save can drop the job before the landing reply arrives.
     const jobs: JobInfo[] = [];
+    // When each of those jobs' flight (or latest leg) took off.
+    const takeoff = new Map<string, number>();
 
     const takeSnapshot = (raw: string | null) => {
       const snap = snapshotFromSave(raw);
@@ -56,8 +58,9 @@ export default defineContentScript({
       const job = snap.active?.job;
       if (job && !jobs.some((j) => j.id === job.id)) {
         jobs.push(job);
-        if (jobs.length > 10) jobs.shift();
+        if (jobs.length > 10) takeoff.delete(jobs.shift()!.id);
       }
+      if (job && snap.active?.t0) takeoff.set(job.id, snap.active.t0);
       // The save is written often while flying. Send it on only when a field we keep changes.
       const key = JSON.stringify({ ...snap, t: 0 });
       if (key === lastKey) return;
@@ -113,6 +116,7 @@ export default defineContentScript({
         const code = req.code;
         const job = [...jobs].reverse().find((j) => j.to === code);
         const tripId = (reply as { trip?: { id?: unknown } }).trip?.id;
+        const reg = last.plane;
         post({
           type: 'landing',
           payload: {
@@ -123,9 +127,15 @@ export default defineContentScript({
             airport: lookupAirport(code),
             result,
             tripId: typeof tripId === 'string' ? tripId : undefined,
+            reg,
+            t0: job ? takeoff.get(job.id) : undefined,
+            planeType: reg ? last.fleet?.find((p) => p.reg === reg)?.type : undefined,
           },
         });
-        if (job) jobs.splice(jobs.indexOf(job), 1);
+        if (job) {
+          jobs.splice(jobs.indexOf(job), 1);
+          takeoff.delete(job.id);
+        }
       }
     };
 
@@ -249,6 +259,8 @@ export default defineContentScript({
     let primary = '';
     let primaryAt = 0;
     let primaryKnown = false;
+    let originShown = '';
+    let originAt = 0;
     setInterval(
       () =>
         quietly(() => {
@@ -272,6 +284,12 @@ export default defineContentScript({
             askStandings(code);
           }
           if (sel) shownKey = key;
+          // The card or board closed: Part II stops showing it. Not while the tab is hidden, when
+          // the game stops drawing and every selection looks closed.
+          else if (shownKey && !document.hidden) {
+            shownKey = '';
+            post({ type: 'unselected', payload: { t: now } });
+          }
 
           // The current airport, or the destination in flight: refreshed each minute, or within
           // seconds while the world data is still loading.
@@ -281,6 +299,14 @@ export default defineContentScript({
             primaryAt = now;
             primaryKnown = describe(here);
             askStandings(here);
+          }
+          // The origin, in flight: Part I shows it. Its holder from the world data only; its
+          // standings are the ones kept from when the pilot was there.
+          const origin = last?.at ? '' : (last?.active?.from?.code ?? '');
+          if (origin && (origin !== originShown || now - originAt > 60_000)) {
+            originShown = origin;
+            originAt = now;
+            describe(origin);
           }
         }),
       400,

@@ -31,9 +31,36 @@ export interface Snapshot {
   coName?: string;
   coTag?: string;
   at: Place | null;
-  active: { id?: string; from?: Place; dest?: Place; job?: JobInfo } | null;
+  /** `t0`: when the flight took off, from `data.active.log.t0`. */
+  active: { id?: string; from?: Place; dest?: Place; job?: JobInfo; t0?: number } | null;
   /** Landings per airport, from `data.visited[code].n`. */
   visited: Record<string, { n: number; name?: string }>;
+  /** The registration of the plane the pilot flies now (`data.plane`). */
+  plane?: string;
+  /** The pilot's planes (`data.fleet`) and, for a member, the company's (`data.company.fleet`). */
+  fleet?: FleetPlane[];
+}
+
+/**
+ * One plane, from `data.fleet` or `data.company.fleet` in the save. The game's hangar shows
+ * `paid` per hour as the plane's earning rate (see src/lib/fleet.ts).
+ */
+export interface FleetPlane {
+  reg: string;
+  /** The game's type id, such as "kite" or "zephyr". */
+  type: string;
+  /** The name the owner painted on it. */
+  name?: string;
+  /** The airport it's parked at. Unset while it flies. */
+  at?: string;
+  /** Hours flown, by every pilot. */
+  hours: number;
+  /** Net pay earned in it. A personal plane's counts this pilot's jobs since the game kept it. */
+  paid?: number;
+  /** A company plane's hours on paid jobs: the game divides `paid` by these. */
+  paidH?: number;
+  /** A company plane, rather than the pilot's own. */
+  co: boolean;
 }
 
 /** What the game's airport database says about a code, from `__pilotsAir.byCode`. */
@@ -61,6 +88,11 @@ export interface LandingEvent {
     line0?: [string, string];
   };
   tripId?: string;
+  /** The plane flown: `data.plane` and its type, from the last save before the landing. */
+  reg?: string;
+  /** When the flight took off (`data.active.log.t0`). */
+  t0?: number;
+  planeType?: string;
 }
 
 /** The holder of an airport and its influence there, from the game's world data. */
@@ -128,6 +160,10 @@ export interface LedgerEntry {
   mates?: string[];
   /** The log saw the pilot reach the weekly limit here with this landing. */
   capped?: boolean;
+  /** The plane flown, when known. */
+  reg?: string;
+  /** When the flight took off, when known. */
+  t0?: number;
 }
 
 export interface Ledger {
@@ -146,13 +182,17 @@ export type HookMessage =
   | { type: 'snapshot'; payload: Snapshot }
   | { type: 'landing'; payload: LandingEvent }
   | { type: 'standings'; payload: AirportStandings }
-  | { type: 'airport'; payload: AirportInfo };
+  | { type: 'airport'; payload: AirportInfo }
+  /** The map card or job board that selected an airport closed. */
+  | { type: 'unselected'; payload: { t: number } };
 
 /** Messages from the side panel to the background worker. */
 export type PanelMessage =
   | { type: 'claim'; payload: { pid: string; code: string; name?: string; pay: number; t: number } }
   | { type: 'unclaim'; payload: { pid: string; code: string; since: number } }
-  | { type: 'log' };
+  | { type: 'log' }
+  /** Replaces every `kb:*` record with a backup's (see src/lib/backup.ts). */
+  | { type: 'restore'; payload: { text: string } };
 
 /** The landing log for the pilot's company, as last downloaded. */
 export interface LogState {
@@ -189,7 +229,19 @@ export const KEYS = {
   totals: 'kb:totals',
   ledger: (pid: string) => `kb:ledger:${pid}`,
   log: 'kb:log',
+  fleet: 'kb:fleet',
+  /** When a landing at each airport was last seen (see src/lib/origin.ts). */
+  landed: 'kb:landed',
 } as const;
+
+/** Each plane's hours and pay, each time they changed. Oldest first. */
+export type FleetHistory = Record<string, FleetSample[]>;
+export interface FleetSample {
+  t: number;
+  hours: number;
+  paid?: number;
+  paidH?: number;
+}
 
 export interface Prefs {
   /** Print size, from 0.5 to 1.5. Unset: 1. */

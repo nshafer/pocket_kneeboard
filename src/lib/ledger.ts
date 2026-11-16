@@ -71,6 +71,8 @@ export function settle(ev: LandingEvent): LedgerEntry | null {
     job: job.id,
     kind: job.kind,
     src,
+    ...(ev.reg ? { reg: ev.reg } : {}),
+    ...(ev.t0 && ev.t0 < ev.t ? { t0: ev.t0 } : {}),
   };
 }
 

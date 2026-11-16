@@ -7,16 +7,10 @@ const at = (iso: string) => Date.parse(iso);
 const NOW = at('2026-11-18T15:00:00Z');
 
 const ledger = (entries: Ledger['entries'] = []): Ledger => ({ pid: 'me', since: at('2026-11-01T00:00:00Z'), entries, seen: {}, base: {} });
-const landing = (over: Partial<LogLanding>): LogLanding => ({
-  key: `${over.pid ?? 'me'}:${over.t}`,
-  pid: 'me',
-  to: 'EGNH',
-  t0: (over.t ?? 0) - 30 * 60_000,
-  t: at('2026-11-18T10:00:00Z'),
-  how: 'measured',
-  pay: 10_000,
-  ...over,
-});
+const landing = (over: Partial<LogLanding>): LogLanding => {
+  const t = over.t ?? at('2026-11-18T10:00:00Z');
+  return { key: `${over.pid ?? 'me'}:${t}`, pid: 'me', to: 'EGNH', t0: t - 30 * 60_000, t, how: 'measured', pay: 10_000, ...over };
+};
 const log = (landings: LogLanding[]) => ({ co: 'c1', updated: NOW, landings });
 
 describe('logUrl', () => {
@@ -78,7 +72,8 @@ describe('withLog', () => {
   it('skips landings this browser saw itself', () => {
     const seen = { t: at('2026-11-18T10:07:00Z'), code: 'EGNH', pay: 10_000, counted: true, src: 'report' as const };
     const l = withLog(ledger([seen]), log([landing({})]), week);
-    expect(l.entries).toEqual([seen]);
+    // Only the log's takeoff time is added.
+    expect(l.entries).toEqual([{ ...seen, t0: at('2026-11-18T09:30:00Z') }]);
   });
 
   it('drops a "This was me" claim the log explains', () => {
@@ -90,5 +85,11 @@ describe('withLog', () => {
   it('caps the airport when the log saw the limit reached', () => {
     const l = withLog(ledger(), log([landing({ how: 'unknown', pay: null, capped: true })]), week);
     expect(tallyAll(l, NOW).get('EGNH')?.thisWeek).toBe(250_000);
+  });
+
+  it('fills in the plane and takeoff of this browser’s own landing from the log', () => {
+    const own = { t: at('2026-11-18T10:05:00Z'), code: 'EGNH', pay: 10_000, counted: true, src: 'value' as const, job: 'J1' };
+    const got = withLog(ledger([own]), log([landing({ reg: 'N1', t0: at('2026-11-18T09:20:00Z') })]), weekStart);
+    expect(got.entries).toEqual([{ ...own, reg: 'N1', t0: at('2026-11-18T09:20:00Z') }]);
   });
 });

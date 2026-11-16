@@ -16,10 +16,12 @@ the exact size. Don't trust `--window-size` alone for narrow layouts.
 - `src/entrypoints/bridge.content.ts`: isolated world. Relays those events to the background.
 - `src/entrypoints/background.ts`: the only writer of `chrome.storage.local` (`kb:*` keys). It
   also enables the side panel on game tabs only.
-- `src/entrypoints/sidepanel/`: the UI, a paper FAA-style form. The user removed night mode. A
-  "Print size" box zooms the clipboard from 50% to 150%.
+- `src/entrypoints/sidepanel/`: the UI, a paper FAA-style form. The user removed night mode. Tabs:
+  Flight (the worksheet), Flight Log, Fleet, Instructions, and a gear for Settings: "Print
+  size" (zooms the clipboard from 50% to 150%), the landing log URL, and backup and restore.
 - `src/lib/game.ts` picks fields out of the save and the API replies. `src/lib/ledger.ts` holds
-  the weekly influence maths.
+  the weekly influence maths. `src/lib/fleet.ts` holds the per-plane rates, and
+  `src/lib/backup.ts` the backup format.
 
 The user decided that the extension must not draw on or change the game's UI, not even with an
 overlay. Everything goes in the side panel. An opt-in, off-by-default toggle might come later.
@@ -95,6 +97,26 @@ on any device as soon as the game here syncs.
     gained or lost.
   - None of these give a member's pay or destination per landing.
 - `data.company.code` is the company's invite code. Never print or log it.
+
+### Planes (save and bundle, 2026-11-16)
+
+- `data.plane` is the reg of the plane the pilot flies now. `data.fleet` holds the pilot's planes
+  and `data.company.fleet` the company's (the game shows them only while `data.co ===
+  data.company.id`). Each is `{reg, type, at, hours, paid, paidH?, name?, …}`.
+- `paid` is the net pay earned in that plane. For a personal plane it equals
+  `data.stats.earnedBy[type]` when the pilot has one plane of that type, and `earnedBy` sums to
+  `stats.earned`. A company plane's `paid` covers every pilot, and `paidH` is its hours on paid
+  jobs. Some company planes have no `paid`.
+- The hangar shows `kp()` as the earning rate: `paid / paidH` per hour for a company plane,
+  `paid / hours` for a personal one, and nothing under 0.1 h.
+- `data.active.log.t0` is when the flight took off (now − `t0` matches the flight clock
+  `active.f.t`). `data.active.ts` is only when the game last wrote the flight: it moves every
+  half minute.
+- The save has no time of the last landing at an airport. `kb:landed` notes when
+  `visited[code].n` rises (src/lib/origin.ts), and the origin's standings are read again in flight
+  only when they're older than that landing.
+- Flights in `/api/air/co{id}` and the map cells have `reg`, `type`, `t0` and `eta`, but no pay.
+  The public `/api/company/{id}` has only a fleet count. No public API gives a flight's pay.
 
 ### The dev browser
 

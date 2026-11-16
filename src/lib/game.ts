@@ -1,7 +1,7 @@
 // Readers for the game's save and API replies. Each one picks named fields from untrusted JSON
 // and drops everything else, so no account value can pass through.
 
-import type { AirportInfo, AirportKind, AirportStandings, Held, JobInfo, LandingEvent, Place, Snapshot } from './types';
+import type { AirportInfo, AirportKind, AirportStandings, FleetPlane, Held, JobInfo, LandingEvent, Place, Snapshot } from './types';
 
 export const SAVE_KEY = 'flash.save.main';
 
@@ -32,6 +32,25 @@ function job(v: unknown): JobInfo | undefined {
   };
 }
 
+/** Reads one plane of `data.fleet` or `data.company.fleet`. */
+function plane(v: unknown, co: boolean): FleetPlane | undefined {
+  if (!isObj(v)) return undefined;
+  const reg = str(v.reg);
+  const type = str(v.type);
+  const hours = num(v.hours);
+  if (!reg || !type || hours === undefined) return undefined;
+  const out: FleetPlane = { reg, type, hours, co };
+  const name = str(v.name);
+  if (name) out.name = name;
+  const at = isObj(v.at) ? str(v.at.code) : undefined;
+  if (at) out.at = at;
+  const paid = num(v.paid);
+  if (paid !== undefined) out.paid = paid;
+  const paidH = num(v.paidH);
+  if (paidH !== undefined) out.paidH = paidH;
+  return out;
+}
+
 /** Reads the parts of the save the Pocket Kneeboard needs. Returns null for anything unexpected. */
 export function snapshotFromSave(raw: string | null): Snapshot | null {
   if (!raw) return null;
@@ -55,10 +74,24 @@ export function snapshotFromSave(raw: string | null): Snapshot | null {
 
   let active: Snapshot['active'] = null;
   if (isObj(d.active)) {
-    active = { id: str(d.active.id), from: place(d.active.from), dest: place(d.active.dest), job: job(d.active.job) };
+    // `active.ts` is when the game last wrote the flight, not when it took off: `log.t0` is that.
+    const t0 = isObj(d.active.log) ? num(d.active.log.t0) : undefined;
+    active = { id: str(d.active.id), from: place(d.active.from), dest: place(d.active.dest), job: job(d.active.job), t0 };
   }
 
   const company = isObj(d.company) ? d.company : undefined;
+  // Only the plane fields: `data.company` also holds the invite code, which must not be copied.
+  const fleet: FleetPlane[] = [];
+  const add = (list: unknown, co: boolean) => {
+    if (!Array.isArray(list)) return;
+    for (const f of list.slice(0, 200)) {
+      const p = plane(f, co);
+      if (p && !fleet.some((x) => x.reg === p.reg)) fleet.push(p);
+    }
+  };
+  add(d.fleet, false);
+  // As the game does: the company's planes only while the pilot is still its member.
+  if (company && str(d.co) && company.id === d.co) add(company.fleet, true);
   return {
     t: num(save.t) ?? 0,
     schema: num(save.v) ?? 0,
@@ -70,6 +103,8 @@ export function snapshotFromSave(raw: string | null): Snapshot | null {
     at: place(d.at) ?? null,
     active,
     visited,
+    plane: str(d.plane),
+    fleet,
   };
 }
 

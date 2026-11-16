@@ -23,6 +23,9 @@ export interface LogLanding {
   /** The pilot reached the weekly limit there with this landing, or had already. */
   capped?: boolean;
   with?: { pid: string; cs?: string }[];
+  /** The plane flown, and its type, from the game's company flights. */
+  reg?: string;
+  type?: string;
 }
 
 export interface CompanyLog {
@@ -74,8 +77,17 @@ export function withLog(ledger: Ledger, log: CompanyLog | undefined, weekOf: (t:
   const own = ledger.entries.filter((e) => e.src !== 'manual' && e.src !== 'log');
   const added: LedgerEntry[] = [];
   const seen = { ...ledger.seen };
+  // This browser's own record of a landing wins, but the log can say which plane flew it and
+  // when it took off (entries from before 0.3.0 don't).
+  const filled = new Map<LedgerEntry, LedgerEntry>();
   for (const l of mine) {
-    if (own.some((e) => e.code === l.to && Math.abs(e.t - l.t) <= SAME_LANDING)) continue;
+    const match = own.find((e) => e.code === l.to && Math.abs(e.t - l.t) <= SAME_LANDING);
+    if (match) {
+      if ((!match.reg && typeof l.reg === 'string') || (!match.t0 && typeof l.t0 === 'number' && l.t0 < match.t)) {
+        filled.set(match, { ...match, reg: match.reg ?? l.reg, t0: match.t0 ?? (l.t0 < match.t ? l.t0 : undefined) });
+      }
+      continue;
+    }
     const teammate = l.with?.some((w) => w.pid !== ledger.pid) ?? false;
     const exact = l.pay !== null && (l.how === 'measured' || (l.how === 'shared' && !teammate));
     added.push({
@@ -88,11 +100,15 @@ export function withLog(ledger: Ledger, log: CompanyLog | undefined, weekOf: (t:
       ...(exact ? {} : { pending: teammate ? 'teammate' : 'unknown', est: l.pay ?? undefined }),
       ...(teammate ? { mates: l.with!.filter((w) => w.pid !== ledger.pid).map((w) => w.cs ?? '?') } : {}),
       ...(l.capped ? { capped: true } : {}),
+      ...(typeof l.reg === 'string' ? { reg: l.reg } : {}),
+      ...(typeof l.t0 === 'number' && l.t0 < l.t ? { t0: l.t0 } : {}),
     });
     seen[l.to] = (seen[l.to] ?? 0) + 1;
   }
   const explained = (claim: LedgerEntry) =>
     added.some((a) => a.counted && a.code === claim.code && a.t <= claim.t && weekOf(a.t) === weekOf(claim.t));
-  const entries = [...ledger.entries.filter((e) => e.src !== 'manual' || !explained(e)), ...added].sort((a, b) => a.t - b.t);
+  const entries = [...ledger.entries.filter((e) => e.src !== 'manual' || !explained(e)).map((e) => filled.get(e) ?? e), ...added].sort(
+    (a, b) => a.t - b.t,
+  );
   return { ...ledger, entries, seen };
 }

@@ -9,21 +9,29 @@ and the text the game draws. It never writes to the save and never changes the g
 
 ## What it shows
 
-- **Part I: present position.** The airport you are at, or your destination while you fly:
-  - your flights this week as filled bubbles toward the $250,000 weekly limit, and last week’s;
-  - your influence (this week + half of last week) and the room left this week;
+The **Flight** page has two parts:
+
+- **Part I: current location**, or your **origin** while you fly:
+  - your flights this week as filled bubbles toward the $250,000 weekly limit;
+  - your influence this week and the room left;
   - your company’s total there, your share of it, and who holds the airport. If your company
     holds it, by how much; if not, how much your company needs to take it.
-- **Part II: other airport.** The airport you selected on the map or on the job board, with the
+- **Part II: selected airport**, the one open on the map or picked on the job board, with the
   same figures, plus the job on offer and its result: whether it would take the airport, or how
-  far short it falls. A round trip (“& back”) lands back at your airport, so it shows that one.
+  far short it falls. The bubbles the job would fill are shaded in light pencil. A round trip
+  (“& back”) lands back at your airport, so it shows that one. With nothing selected, Part II
+  shows your **destination** and the job you’re flying while in the air, and is blank on the
+  ground.
 - **Remarks** for each airport: your last flight there, who in your company landed there
   recently, and how much your company’s total rose beyond your own logged flights. Tick
   **This was me** to count that rise as yours, for example after flying on your phone.
-- **Schedule A.** Every airport you flew a job to in the last two weeks, with your influence at
-  each.
-
-Use **Print size** (box 4) to make the form larger or smaller, from 50% to 150%.
+- **Flight Log.** Every airport you flew a job to this week, with your influence at each.
+- **Fleet.** Each of your planes and your company’s, with its net pay per hour and the influence
+  it adds per hour over the last 7 days, and its net pay per hour over its whole life (the
+  game’s own figure, as the hangar shows it).
+- **Settings** (the gear): **Print size**, from 50% to 150%; the landing log’s URL; and
+  **Backup and restore**, which saves all your records as a file (or to the clipboard) and loads
+  them back, for example into another browser.
 
 ### The figures are estimates
 
@@ -75,7 +83,8 @@ move the folder.
 - Chrome may show a *Disable developer mode extensions* warning when it starts. Click away from it
   (don’t click **Disable**).
 - Unpacked extensions don’t update themselves. Watch the repository’s releases for new versions.
-- Records are kept per browser profile. Two browsers, or two profiles, keep separate records.
+- Records are kept per browser profile. Two browsers, or two profiles, keep separate records. To
+  move them, use **Backup and restore** in Settings.
 - When selecting a job in the job board, the extension detects the destination via the text in the
   big yellow button. It detects return trips if it ends in "& back" but that can be truncated in
   some cases, and not update Part II of the worksheet.
@@ -86,7 +95,8 @@ The extension runs only on `pilots.nimblebit.com`, and keeps its records in the 
 storage. It sends nothing to anyone else. To fill in the hold figures, it asks the game’s server
 for an airport’s standings (the same request the game’s leaderboard makes, at most once a minute
 per airport). It reads only the parts of the game’s save it needs: callsign, company, current
-airport, the active job and the landing counts. It never reads the sign-in or account data.
+airport, the active job, the landing counts and the planes’ hours and earnings. It never reads the
+sign-in or account data. A backup holds only the extension’s own records.
 
 ## Develop
 

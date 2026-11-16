@@ -10,10 +10,14 @@ import { WEEKLY_CAP, emptyTally, tallyAll, unseenLandings, weekStart, type Tally
 import { afterJob, holdSummary, type HoldSummary, type JobOutcome } from '@/lib/hold';
 import { unlogged } from '@/lib/totals';
 import { withLog } from '@/lib/log';
+import { FLEET_WINDOW, lifetimeRate, perHour, planeLandings, planeWindow, type PlaneWindow } from '@/lib/fleet';
+import { describeBackup, makeBackup, parseBackup, type Backup } from '@/lib/backup';
 import {
   KEYS,
   type AirportInfo,
   type AirportStandings,
+  type FleetHistory,
+  type FleetPlane,
   type Ledger,
   type LogState,
   type PanelMessage,
@@ -26,10 +30,15 @@ import {
 const FORM = 'FAA Form 7233-KB';
 const EDITION = '(11-26)';
 const VERSION = chrome.runtime.getManifest().version;
-/** A map selection older than this is no longer shown. */
-const SELECTED_FOR = 30 * 60_000;
-/** Ruled lines on one page of Schedule A. Longer lists continue on another page. */
+/**
+ * A selection older than this is no longer shown. The page hook resends a selection each minute
+ * while it stays open, and says when it closes; this covers a close it couldn't report.
+ */
+const SELECTED_FOR = 3 * 60_000;
+/** Ruled lines on one sheet of the flight log. Longer lists continue on another sheet. */
 const ROWS_PER_PAGE = 20;
+/** Ruled lines on one sheet of the fleet list, section headings and totals included. */
+const FLEET_ROWS = 24;
 
 interface State {
   live?: Snapshot;
@@ -39,14 +48,18 @@ interface State {
   standings: Record<string, AirportStandings>;
   airports: Record<string, AirportInfo>;
   totals: TotalsHistory;
+  fleet: FleetHistory;
   selected?: Selected;
   prefs: Prefs;
 }
 
 interface Page {
   id: string;
-  /** The tab it's filed under. Schedule A's sheets share one tab. */
+  /** The tab it's filed under. The sheets of the flight log share one tab, and so do the fleet's. */
   tab: string;
+  /** The tab's label, and a shorter one for a narrow clipboard. */
+  label: string;
+  short?: string;
   /** This page's sheet in its tab, and how many sheets the tab holds. */
   sheet: number;
   sheets: number;
@@ -93,17 +106,26 @@ const box = (n: string | number, label: string, body: string, cls = '') =>
 
 const cb = (on: boolean) => `<i class="cb">${on ? hand('X', 'x') : ''}</i>`;
 
-/** 25 bubbles, one for each $10,000, in five groups of five. */
-function bubbles(value: number, cls = '') {
+/**
+ * 25 bubbles, one for each $10,000, in five groups of five. `add` is a job on offer: the bubbles
+ * it would fill are shaded lightly in pencil, after the filled ones.
+ */
+function bubbles(value: number, add = 0, cls = '') {
   const per = WEEKLY_CAP / 25;
+  const pct = (f: number) => `${Math.round(f * 100)}%`;
   let html = '';
   for (let g = 0; g < 5; g++) {
     html += `<div class="group">`;
     for (let i = 0; i < 5; i++) {
       const k = g * 5 + i;
       const fill = Math.max(0, Math.min(1, (value - k * per) / per));
-      const style = fill > 0 && fill < 1 ? ` style="--fill:${Math.round(fill * 100)}%"` : '';
-      html += `<i class="bubble ${fill >= 1 ? 'full' : fill > 0 ? 'part' : ''}"${style}></i>`;
+      const to = Math.max(0, Math.min(1, (value + add - k * per) / per));
+      const vars: string[] = [];
+      if (fill > 0 && fill < 1) vars.push(`--fill:${pct(fill)}`);
+      if (to > fill) vars.push(`--from:${pct(fill)}`, `--to:${pct(to)}`);
+      const style = vars.length ? ` style="${vars.join(';')}"` : '';
+      const kind = [fill >= 1 ? 'full' : fill > 0 ? 'part' : '', to > fill ? 'add' : ''].filter(Boolean).join(' ');
+      html += `<i class="bubble ${kind}"${style}></i>`;
     }
     html += `<small>${(g + 1) * 50}K</small></div>`;
   }
@@ -227,7 +249,16 @@ function partRemarks(s: State, code: string | undefined, now: number, extra: str
   return items.slice(0, REMARK_LINES).join('');
 }
 
-function airportPart(s: State, code: string | undefined, num: { n: number }, now: number, compact = false, sel?: Selected) {
+/** A job to an airport part's airport: one on offer, or the one being flown. */
+interface Offer {
+  job?: { pay: number; time?: string };
+  /** A round trip: the place it goes to before it lands back here. */
+  back?: string;
+  /** Where it was seen, for the job's line: "job board", "map", "flying it". */
+  via: string;
+}
+
+function airportPart(s: State, code: string | undefined, num: { n: number }, now: number, compact = false, offer?: Offer) {
   const t = code ? (tallyAll(s.ledger, now).get(code) ?? emptyTally(code)) : emptyTally('');
   const name = code ? nameOf(s, code, t) : '';
   const st = code ? s.standings[code] : undefined;
@@ -248,9 +279,18 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
       ${box(n(), 'Airport name', name ? hand(name, 'fit', 'name') : '')}
       ${box(n(), 'Held by', heldBy)}
     </div>`;
+  // The job on offer here, or the one being flown here, and what it would do.
+  const job = compact ? offer?.job : undefined;
+  const voidHere = !!(info?.kind?.pad || info?.kind?.seaOnly);
+  const out = job && hold && !voidHere ? afterJob(hold, job.pay, t.room) : undefined;
+  const adds = out?.counted ?? 0;
+
   const capped = t.thisWeek >= WEEKLY_CAP;
   const stamp = capped ? `<div class="stamp capped" aria-label="Capped: weekly limit reached">Capped<small>Weekly limit reached</small></div>` : '';
-  html += `<div class="row${capped ? ' has-stamp' : ''}">${box(n(), 'Your flights this week · one bubble per $10,000 · limit $250,000', bubbles(t.thisWeek))}${stamp}</div>`;
+  const label = adds
+    ? `Your flights this week, <span class="adds">and this job (shaded)</span> · one bubble per $10,000`
+    : 'Your flights this week · one bubble per $10,000 · limit $250,000';
+  html += `<div class="row${capped ? ' has-stamp' : ''}">${box(n(), label, bubbles(t.thisWeek, adds))}${stamp}</div>`;
 
   html += `<div class="lines">`;
   const l1 = n();
@@ -262,15 +302,13 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
   html += line(n(), `${esc(us)} total here${when}`, ours !== undefined ? hand(money(ours), '', 'ours') : '');
   html += holdLine(n(), us, hold, nobody);
 
-  // The job the game offers to the selected airport, and whether it would win it.
-  const job = compact && sel && sel.code === code ? sel.job : undefined;
+  // The job's line, and whether it would win the airport.
   if (job && hold) {
-    const trip = sel?.back ? `to ${esc(sel.back)} &amp; back` : 'here';
-    html += line(n(), `Job ${trip} <span class="when">(${job.time ? esc(job.time) : sel?.via === 'board' ? 'job board' : 'map'})</span>`, hand(money(job.pay), '', 'job'));
-    if (info?.kind?.pad || info?.kind?.seaOnly) {
-      html += line(n(), `<b>Result</b>: no change, ${info.kind.pad ? 'helipads' : 'seaplane bases'} count for no one`, '', 'total');
+    const trip = offer?.back ? `to ${esc(offer.back)} &amp; back` : 'here';
+    html += line(n(), `Job ${trip} <span class="when">(${esc(job.time ?? offer?.via ?? '')})</span>`, hand(money(job.pay), '', 'job'));
+    if (!out) {
+      html += line(n(), `<b>Result</b>: no change, ${info?.kind?.pad ? 'helipads' : 'seaplane bases'} count for no one`, '', 'total');
     } else {
-      const out = afterJob(hold, job.pay, t.room);
       html += jobLine(n(), us, hold, out, !!nobody);
       if (out.counted < job.pay) extra.push(`Only $${money(out.counted)} of this job counts: your weekly limit here.`);
     }
@@ -289,26 +327,37 @@ function airportPart(s: State, code: string | undefined, num: { n: number }, now
 function worksheet(s: State, now: number, pageNo: number, pages: number): string {
   const l = s.live;
   const enRoute = !l?.at && !!l?.active?.dest;
-  const primary = l?.at?.code ?? l?.active?.dest?.code;
-  // Part II follows the latest selection, even when it's the airport Part I shows.
+  const dest = l?.active?.dest;
+  // Part II follows the airport selected on the map or job board, even when it's the one Part I
+  // shows. With nothing selected it shows the destination in flight, and nothing on the ground.
   const sel = s.selected && now - s.selected.t < SELECTED_FOR ? s.selected : undefined;
   const selVia = sel?.back ? 'round trip on the job board' : sel?.via === 'board' ? 'on the job board' : 'on the map';
+  const flown = l?.active?.job;
   const partI = enRoute
-    ? `Part I — Destination <span class="sub">(en route from ${esc(l?.active?.from?.code ?? '…')})</span>`
-    : 'Part I — Present position';
-  const zoom = zoomOf(s);
-
+    ? `Part I — Origin <span class="sub">(en route to ${esc(dest?.code ?? '…')})</span>`
+    : 'Part I — Current location';
+  let partII: string;
+  let other: string | undefined;
+  let offer: Offer | undefined;
+  if (sel) {
+    partII = `Part II — Selected airport <span class="sub">(${selVia})</span>`;
+    other = sel.code;
+    offer = { job: sel.job, back: sel.back, via: sel.via === 'board' ? 'job board' : 'map' };
+  } else if (enRoute) {
+    partII = `Part II — Destination <span class="sub">(from ${esc(l?.active?.from?.code ?? '…')})</span>`;
+    other = dest?.code;
+    // The job being flown lands here: its pay is on the save's active job.
+    const pay = flown?.to === other ? flown?.pay : undefined;
+    offer = { job: pay ? { pay } : undefined, via: 'flying it' };
+  } else {
+    partII = 'Part II — Selected airport <span class="sub">(pick one on the map or job board)</span>';
+  }
   return `
     ${formHead('Pilot’s Airport Influence Worksheet', 'Pocket Pilots · Holding airports')}
     <div class="row r-pilot">
       ${box(1, 'Pilot', l?.callsign ? hand(l.callsign, 'big', 'pilot') : '')}
       ${box(2, 'Company', l?.coTag ? hand(l.coTag, 'big', 'co') : l ? hand('none') : '')}
       ${box(3, 'Week beginning', `${typed(dateUtc(weekStart(now)))} <span class="zulu">${typed('0000Z')}</span>`)}
-      <div class="box size"><div class="lbl"><b>4.</b> Print size</div><div class="val">
-        <button type="button" data-zoom="-1" aria-label="Smaller print" ${zoom <= ZOOM_MIN ? 'disabled' : ''}>A−</button>
-        ${typed(`${Math.round(zoom * 100)}%`)}
-        <button type="button" data-zoom="1" aria-label="Larger print" ${zoom >= ZOOM_MAX ? 'disabled' : ''}>A+</button>
-      </div></div>
     </div>
     ${
       l
@@ -316,9 +365,9 @@ function worksheet(s: State, now: number, pageNo: number, pages: number): string
         : `<div class="not-started"><span>Form not started</span>${hand('Open Pocket Pilots in this tab and sign in. I’ll fill this in as you fly.', 'remark')}</div>`
     }
     <h2 class="bar">${partI}</h2>
-    ${airportPart(s, primary, { n: 5 }, now)}
-    <h2 class="bar">Part II — Other airport <span class="sub">${sel ? `(selected ${selVia} ${esc(ago(sel.t, now))})` : '(pick one on the map or job board)'}</span></h2>
-    ${airportPart(s, sel?.code, { n: 30 }, now, true, sel)}
+    ${airportPart(s, enRoute ? l?.active?.from?.code : l?.at?.code, { n: 4 }, now)}
+    <h2 class="bar">${partII}</h2>
+    ${airportPart(s, other, { n: 30 }, now, true, offer)}
     <div class="grow"></div>
     <p class="see">${logNote(s, now)}</p>
     ${footer(pageNo, pages)}`;
@@ -332,12 +381,12 @@ function logNote(s: State, now: number) {
   return 'Figures are estimates worked out in this browser, not read from the server. See the instructions.';
 }
 
-// --- Schedule A: every airport ----------------------------------------------------------------
+// --- The flight log: every airport flown to this week ------------------------------------------
 
 /** A row with nothing that counts: only pad jobs, or a place that can't be held. */
 const noCredit = (t: Tally) => !!t.facility || (t.thisRaw === 0 && !t.pending && !t.capped);
 
-function scheduleA(s: State, now: number): string[] {
+function flightLog(s: State, now: number): string[] {
   // Only airports flown to this week: last week's landings don't count toward this week's limit.
   const week = weekStart(now);
   const flown = new Set(s.ledger?.entries.filter((e) => e.t >= week).map((e) => e.code));
@@ -350,7 +399,7 @@ function scheduleA(s: State, now: number): string[] {
   const more = unseen.length > 4 ? ` and ${unseen.length - 4} more` : '';
   const remarks: string[] = [];
   if (unseen.length) remarks.push(`${listed}${more}: landings in your logbook this Pocket Kneeboard didn’t see (other device?). Not counted.`);
-  if (rows.some((t) => t.pending)) remarks.push('+? : flights from another device with no exact pay yet. See the worksheet.');
+  if (rows.some((t) => t.pending)) remarks.push('+? : flights from another device with no exact pay yet. See the Flight page.');
   if (s.log?.log) remarks.push(`Landing log updated ${ago(s.log.log.updated, now)}.`);
   const remark = remarks.map((r, i) => hand(r, 'remark', `sched${i}`)).join('');
 
@@ -373,7 +422,7 @@ function scheduleA(s: State, now: number): string[] {
     for (let r = chunk.length; r < ROWS_PER_PAGE; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
     const cont = i > 0 ? ' (continued)' : '';
     return `
-      ${formHead(`Schedule A${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
+      ${formHead(`Flight Log${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
       <table class="ledger">
         <caption>This week · amounts in thousands of dollars</caption>
         <thead><tr><th>Ident</th><th>Airport name</th><th>This wk</th><th>Room left</th><th>Of $250K</th></tr></thead>
@@ -388,9 +437,123 @@ function scheduleA(s: State, now: number): string[] {
   });
 }
 
+// --- The fleet: earnings and influence per plane ------------------------------------------------
+
+/** "kite" → "Kite", "skyliner" → "Skyliner": the game's type ids are its names in lower case. */
+const typeName = (type: string) => type.charAt(0).toUpperCase() + type.slice(1);
+/** Dollars per hour in thousands, or a dash when there are too few hours to say. */
+const rate = (v: number | null, est = false) =>
+  v === null ? hand('—', 'dash') : hand(thousands(v)) + (est ? '<sup class="q" title="Part of it is the landing log’s even split of a shared rise">≈</sup>' : '');
+
+type FleetRow =
+  | { kind: 'head'; label: string }
+  | { kind: 'plane'; p: FleetPlane; w: PlaneWindow; mine: boolean }
+  | { kind: 'total'; label: string; rows: { p: FleetPlane; w: PlaneWindow }[] };
+
+function fleetRowHtml(r: FleetRow): string {
+  if (r.kind === 'head') return `<tr class="sect"><th colspan="5">${esc(r.label)}</th></tr>`;
+  if (r.kind === 'plane') {
+    const { p, w } = r;
+    const what = [typeName(p.type), p.reg, r.mine ? 'flying it' : p.at ? `at ${p.at}` : 'aloft'].join(' · ');
+    const name = p.name ? p.name.charAt(0) + p.name.slice(1).toLowerCase() : typeName(p.type);
+    const tot = w.totals;
+    const net = tot ? perHour(tot.paid, tot.rateHours) : null;
+    const infl = perHour(w.influence, w.inflHours);
+    const flights = w.landings ? ` · ${w.landings} landing${w.landings > 1 ? 's' : ''} in 7 days` : '';
+    const unknown = w.unknown ? `<sup class="q" title="${w.unknown} landing${w.unknown > 1 ? 's' : ''} left out: influence or flight time not known">+?</sup>` : '';
+    return `<tr title="${esc(`${what} · ${p.hours.toFixed(1)} h in all${flights}`)}">
+      <td class="ac"><small>${esc(what)}</small>${hand(name, 'fit', `ac${p.reg}`)}</td>
+      <td class="num">${tot ? hand(tot.hours.toFixed(1)) : ''}</td>
+      <td class="num">${tot ? rate(net) : ''}</td>
+      <td class="num">${rate(infl, w.est)}${unknown}</td>
+      <td class="num">${rate(lifetimeRate(p))}</td>
+    </tr>`;
+  }
+  // Each total is the sum of the pay over the sum of the hours, so a busy plane weighs more.
+  const sum = (f: (x: { p: FleetPlane; w: PlaneWindow }) => number | undefined) => r.rows.reduce((a, x) => a + (f(x) ?? 0), 0);
+  const withPay = r.rows.filter((x) => x.w.totals?.paid !== undefined);
+  const net = perHour(sum((x) => x.w.totals?.paid), withPay.reduce((a, x) => a + x.w.totals!.rateHours, 0));
+  const infl = perHour(sum((x) => x.w.influence), sum((x) => x.w.inflHours));
+  const life = r.rows.filter((x) => lifetimeRate(x.p) !== null);
+  const lifeRate = perHour(
+    life.reduce((a, x) => a + x.p.paid!, 0),
+    life.reduce((a, x) => a + (x.p.co ? x.p.paidH! : x.p.hours), 0),
+  );
+  const t = (v: number | null) => (v === null ? '' : hand(thousands(v)));
+  return `<tr class="sum"><td>${esc(r.label)}</td><td class="num">${hand(sum((x) => x.w.totals?.hours).toFixed(1))}</td>
+    <td class="num">${t(net)}</td><td class="num">${t(infl)}</td><td class="num">${t(lifeRate)}</td></tr>`;
+}
+
+function fleetSheets(s: State, now: number): string[] {
+  const l = s.live;
+  const planes = l?.fleet ?? [];
+  const landings = planeLandings(s.ledger, s.log?.log);
+  const windows = new Map(planes.map((p) => [p.reg, planeWindow(p, s.fleet[p.reg], landings, now)]));
+  const win = (p: FleetPlane) => windows.get(p.reg)!;
+  // Busiest first: the recent net rate, then the game's own.
+  const score = (p: FleetPlane) => {
+    const t = win(p).totals;
+    return [(t && perHour(t.paid, t.rateHours)) ?? -1, lifetimeRate(p) ?? -1] as const;
+  };
+  const order = (a: FleetPlane, b: FleetPlane) => {
+    const [x1, x2] = score(a);
+    const [y1, y2] = score(b);
+    return y1 - x1 || y2 - x2;
+  };
+  const rows: FleetRow[] = [];
+  const section = (label: string, list: FleetPlane[], total: string) => {
+    if (!list.length) return;
+    rows.push({ kind: 'head', label });
+    for (const p of [...list].sort(order)) rows.push({ kind: 'plane', p, w: win(p), mine: p.reg === l?.plane });
+    rows.push({ kind: 'total', label: total, rows: list.map((p) => ({ p, w: win(p) })) });
+  };
+  section('Section 1 — Your aircraft', planes.filter((p) => !p.co), 'Total, your aircraft');
+  section(`Section 2 — ${l?.coTag ?? 'Company'} aircraft`, planes.filter((p) => p.co), 'Total, company aircraft');
+
+  // Hours and pay start a week ago, or when sampling began, whichever is later.
+  const from = Math.max(now - FLEET_WINDOW, Math.min(...[...windows.values()].map((w) => w.totals?.from ?? now)));
+  const remarks: string[] = [];
+  if (!l) remarks.push('Open Pocket Pilots in this tab and sign in. I’ll list your planes.');
+  else if (!planes.length) remarks.push('No planes in your save yet.');
+  else {
+    if (from > now - FLEET_WINDOW + 60 * 60_000) remarks.push(`Hours, net/h: since ${clock(from, now)}, when I began to note your fleet.`);
+    remarks.push(
+      s.log?.log
+        ? 'Infl./h: influence of your landings, and teammates’ from the landing log, over those flights’ hours.'
+        : 'Infl./h counts only your landings: set a landing log in Settings for your teammates’ and other devices.',
+    );
+    remarks.push('Life: the game’s own figure, net pay ÷ hours (company planes: ÷ hours on paid jobs). —: too few hours, or no pay kept.');
+  }
+  const remark = remarks.map((r, i) => hand(r, 'remark', `fleet${i}`)).join('');
+
+  const chunks: FleetRow[][] = [];
+  for (let i = 0; i < Math.max(1, rows.length); i += FLEET_ROWS) chunks.push(rows.slice(i, i + FLEET_ROWS));
+  return chunks.map((chunk, i) => {
+    const last = i === chunks.length - 1;
+    let body = chunk.map(fleetRowHtml).join('');
+    for (let r = chunk.length; r < (last ? Math.min(FLEET_ROWS, 12) : FLEET_ROWS); r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
+    const cont = i > 0 ? ' (continued)' : '';
+    return `
+      ${formHead(`Fleet Report${cont}`, `Earnings by aircraft · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. ${String(i + 1).padStart(2, '0')}</b>`)}
+      <table class="ledger fleet">
+        <caption>Amounts in thousands of dollars per hour</caption>
+        <thead>
+          <tr><th rowspan="2">Aircraft</th><th colspan="3">Last 7 days</th><th rowspan="2">Life<br>net/h</th></tr>
+          <tr><th>Hours</th><th>Net/h</th><th>Infl./h</th></tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${
+        last
+          ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
+          : `<p class="see">Continued on sheet ${i + 2} of ${chunks.length}. Turn the corner.</p><div class="grow"></div>`
+      }`;
+  });
+}
+
 // --- Instructions -----------------------------------------------------------------------------
 
-/** The landing log's status and URL setting, on the instructions page. */
+/** The landing log's status and URL setting, on the settings page. */
 function logForm(s: State) {
   const co = s.live?.co;
   const now = Date.now();
@@ -406,7 +569,7 @@ function logForm(s: State) {
           : 'None set: flights on other devices aren’t counted.';
   return `<form class="log-form" data-log-form>
       <input type="url" name="url" placeholder="https://example.org/kneeboard/{id}.json"
-        value="${esc(s.prefs.logUrl ?? '')}" aria-label="Landing log URL" ${co ? '' : 'disabled'}>
+        value="${esc(kept.get('logUrl') ?? s.prefs.logUrl ?? '')}" data-keep="logUrl" aria-label="Landing log URL" ${co ? '' : 'disabled'}>
       <button type="submit" ${co ? '' : 'disabled'}>Save</button>
     </form>
     <p class="small">${status}${co ? ` Your company: ${esc(s.live?.coTag ?? '?')}, id ${typed(co)}.` : ''}</p>`;
@@ -442,71 +605,154 @@ function instructions(s: State): string {
       </ul>
 
       <h3>Flights from other devices</h3>
-      <p class="ragged">A script on a server can poll the game each minute and log every landing by your
-      company, with the influence it added. A flight counts when it was yours alone. Run
-      <span class="typed">server/kneeboard_poll.py</span> under cron with your company’s id
-      (below), or ask whoever runs one for its URL.</p>
-      ${logForm(s)}
+      <p class="ragged">A script on a server can log every landing by your company, with the
+      influence it added. A flight counts when it was yours alone. Run
+      <span class="typed">server/kneeboard_poll.py</span> under cron, or ask whoever runs one for
+      its URL, and enter it in <b>Settings</b> (the gear).</p>
+
+      <h3>Fleet</h3>
+      <p>Net pay and influence per hour for each plane, over the last 7 days and, for pay, its
+      whole life as the game counts it.</p>
 
       <h3>Paperwork Reduction Act notice</h3>
       <p class="small">This form is kept only in your browser. It reads your callsign, company,
-      position, active job, landing counts and company from the game’s save, never your sign-in.
+      position, active job, landing counts, planes and company from the game’s save, never your
+      sign-in.
       It asks the game for airport standings, and reads your company’s landing log. Estimated time
       to fill in: 0 minutes; it fills in itself.</p>
     </div>
     <div class="grow"></div>`;
 }
 
+// --- Settings ---------------------------------------------------------------------------------
+
+/** Form values typed but not saved, kept across redraws: `data-keep` name → value. */
+const kept = new Map<string, string>();
+
+/** Backup and restore: a backup read and waiting to be confirmed, and the last outcome. */
+const backupUi: { pending?: { text: string; backup: Backup }; status?: string; error?: boolean } = {};
+
+function backupForm(): string {
+  const p = backupUi.pending;
+  let confirm = '';
+  if (p) {
+    const d = describeBackup(p.backup);
+    const what = [`${d.records} record${d.records === 1 ? '' : 's'}`, `${d.flights} flight${d.flights === 1 ? '' : 's'}`];
+    const of = d.pilot ? ` of ${esc(d.pilot)}` : '';
+    const when = p.backup.exported ? `, made ${typed(dateUtc(p.backup.exported))}` : '';
+    confirm = `<div class="confirm" role="alert">
+        <p>Backup${of}${when} (v${esc(p.backup.version)}): ${what.join(', ')}. Restoring replaces every
+        record in this browser with it.</p>
+        <div class="buttons"><button type="button" class="btn primary" data-backup="restore">Restore it</button>
+        <button type="button" class="btn" data-backup="cancel">Cancel</button></div>
+      </div>`;
+  }
+  const status = backupUi.status ? `<p class="small status${backupUi.error ? ' bad' : ''}" role="status">${esc(backupUi.status)}</p>` : '';
+  return `
+    <div class="buttons">
+      <button type="button" class="btn" data-backup="download">Download backup</button>
+      <button type="button" class="btn" data-backup="copy">Copy to clipboard</button>
+    </div>
+    <p class="ragged">To restore, choose a backup file, or paste one below.</p>
+    <div class="buttons">
+      <label class="btn">Choose file…<input type="file" accept=".json,application/json" data-restore-file hidden></label>
+    </div>
+    <textarea data-keep="paste" rows="3" spellcheck="false" placeholder="Paste a backup here" aria-label="Pasted backup">${esc(kept.get('paste') ?? '')}</textarea>
+    <div class="buttons"><button type="button" class="btn" data-backup="paste">Read pasted backup</button></div>
+    ${confirm}${status}`;
+}
+
+function settings(s: State): string {
+  const zoom = zoomOf(s);
+  return `
+    ${formHead('Settings', `Preferences for ${FORM}`, 'Keep with<br>the form')}
+    <div class="instr settings">
+      <h3>Print size</h3>
+      <div class="size">
+        <button type="button" data-zoom="-1" aria-label="Smaller print" ${zoom <= ZOOM_MIN ? 'disabled' : ''}>A−</button>
+        ${typed(`${Math.round(zoom * 100)}%`)}
+        <button type="button" data-zoom="1" aria-label="Larger print" ${zoom >= ZOOM_MAX ? 'disabled' : ''}>A+</button>
+        <span class="small">Makes the whole form larger or smaller, from 50% to 150%.</span>
+      </div>
+
+      <h3>Landing log</h3>
+      <p class="ragged">Its URL, with <span class="typed">{id}</span> for your company’s id. See the instructions.</p>
+      ${logForm(s)}
+
+      <h3>Backup and restore</h3>
+      <p class="ragged">Your records are kept only in this browser. A backup holds all of them, to keep or to
+      move to another browser. It holds no sign-in data.</p>
+      ${backupForm()}
+    </div>
+    <div class="grow"></div>`;
+}
+
 // --- The clipboard ----------------------------------------------------------------------------
 
+/** Tabs with several sheets: the first sheet's page id, and each later sheet's is `${id}-${n}`. */
+const SHEETED = { log: 'Flight log', fleet: 'Fleet report' } as const;
+const sheetId = (tab: keyof typeof SHEETED, k: number) => (k === 0 ? tab : `${tab}-${k + 1}`);
+
 function pages(s: State, now: number): Page[] {
-  const sched = scheduleA(s, now);
   const list: (Omit<Page, 'html'> & { body: (n: number, of: number) => string })[] = [];
-  list.push({ id: 'worksheet', tab: 'Worksheet', sheet: 1, sheets: 1, body: (n, of) => worksheet(s, now, n, of) });
-  sched.forEach((html, i) =>
-    list.push({
-      id: i === 0 ? 'schedule-a' : `schedule-a-${i + 1}`,
-      tab: 'Sched. A',
-      sheet: i + 1,
-      sheets: sched.length,
-      body: (n, of) => html + footer(n, of) + curls(i, sched.length),
-    }),
-  );
-  list.push({ id: 'instructions', tab: 'Instructions', sheet: 1, sheets: 1, body: (n, of) => instructions(s) + footer(n, of) });
-  return list.map((p, i) => ({ id: p.id, tab: p.tab, sheet: p.sheet, sheets: p.sheets, html: p.body(i + 1, list.length) }));
+  list.push({ id: 'worksheet', tab: 'worksheet', label: 'Flight', sheet: 1, sheets: 1, body: (n, of) => worksheet(s, now, n, of) });
+  const sheeted = (tab: keyof typeof SHEETED, label: string, short: string | undefined, sheets: string[]) =>
+    sheets.forEach((html, i) =>
+      list.push({
+        id: sheetId(tab, i),
+        tab,
+        label,
+        short,
+        sheet: i + 1,
+        sheets: sheets.length,
+        body: (n, of) => html + footer(n, of) + curls(tab, i, sheets.length),
+      }),
+    );
+  sheeted('log', 'Flight Log', 'Log', flightLog(s, now));
+  sheeted('fleet', 'Fleet', undefined, fleetSheets(s, now));
+  list.push({ id: 'instructions', tab: 'instructions', label: 'Instructions', short: 'Help', sheet: 1, sheets: 1, body: (n, of) => instructions(s) + footer(n, of) });
+  list.push({ id: 'settings', tab: 'settings', label: 'Settings', sheet: 1, sheets: 1, body: (n, of) => settings(s) + footer(n, of) });
+  return list.map(({ body, ...p }, i) => ({ ...p, html: body(i + 1, list.length) }));
 }
 
-/** Turned-up corners that leaf through Schedule A's sheets: back on the left, on on the right. */
-function curls(i: number, n: number) {
-  const id = (k: number) => (k === 0 ? 'schedule-a' : `schedule-a-${k + 1}`);
+/** Turned-up corners that leaf through a tab's sheets: back on the left, on on the right. */
+function curls(tab: keyof typeof SHEETED, i: number, n: number) {
+  const what = SHEETED[tab];
   let html = '';
-  if (i > 0) html += `<button type="button" class="curl prev" data-page="${id(i - 1)}" aria-label="Previous sheet of Schedule A (${i} of ${n})"><span>‹ ${i}</span></button>`;
-  if (i < n - 1) html += `<button type="button" class="curl next" data-page="${id(i + 1)}" aria-label="Next sheet of Schedule A (${i + 2} of ${n})"><span>${i + 2} ›</span></button>`;
+  if (i > 0) html += `<button type="button" class="curl prev" data-page="${sheetId(tab, i - 1)}" aria-label="Previous sheet of the ${what.toLowerCase()} (${i} of ${n})"><span>‹ ${i}</span></button>`;
+  if (i < n - 1) html += `<button type="button" class="curl next" data-page="${sheetId(tab, i + 1)}" aria-label="Next sheet of the ${what.toLowerCase()} (${i + 2} of ${n})"><span>${i + 2} ›</span></button>`;
   return html;
 }
+
+/** A gear, for the settings tab. */
+const GEAR = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.47.41l-.36 2.54a7.4 7.4 0 0 0-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2"/></svg>`;
+
+/** Page ids from before 0.3.0, when the flight log was "Schedule A". */
+const OLD_PAGE = /^schedule-a(-\d+)?$/;
 
 function render(s: State) {
   const now = Date.now();
   fitBoard(zoomOf(s));
   const all = pages(s, now);
-  // A Schedule A sheet that's gone (fewer airports now) falls back to its last sheet.
-  const current =
-    all.find((p) => p.id === s.prefs.page) ??
-    (s.prefs.page?.startsWith('schedule-a') ? all.filter((p) => p.tab === 'Sched. A').at(-1) : undefined) ??
-    all[0]!;
+  const want = s.prefs.page?.replace(OLD_PAGE, 'log$1');
+  // A sheet that's gone (fewer airports or planes now) falls back to its tab's last sheet.
+  const wantTab = want?.replace(/-\d+$/, '');
+  const current = all.find((p) => p.id === want) ?? all.filter((p) => p.tab === wantTab).at(-1) ?? all[0]!;
   // One tab per kind of page. A tab with several sheets opens on the one showing, or its first.
   const tabs = all.filter((p) => p.sheet === 1).map((p) => (current.tab === p.tab ? current : p));
   const app = document.getElementById('app')!;
-  // Keep focus on the tab or corner that had it (they can point to the same page).
+  // Keep focus on the tab, corner or field that had it (a tab and a corner can point to the same page).
   const active = document.activeElement as HTMLElement | null;
   const focused = active?.dataset.page;
   const kind = active?.classList.contains('curl') ? '.curl' : '[role="tab"]';
+  const field = active?.dataset.keep;
+  const caret = field && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) ? [active.selectionStart, active.selectionEnd] : undefined;
 
   app.innerHTML = `
   <div class="board">
     <div class="clip" aria-hidden="true"><i></i></div>
     <div class="stack">
-      <section class="sheet" id="sheet" role="tabpanel" aria-labelledby="tab-${current.tab === 'Sched. A' ? 'schedule-a' : current.id}">${current.html}</section>
+      <section class="sheet" id="sheet" role="tabpanel" aria-labelledby="tab-${current.tab}">${current.html}</section>
     </div>
     <nav class="tabs" role="tablist" aria-label="Pages">
       ${tabs
@@ -514,20 +760,29 @@ function render(s: State) {
           const on = p === current;
           const stacked = p.sheets > 1 ? ` stacked${p.sheets > 2 ? ' stacked-3' : ''}` : '';
           const count = p.sheets > 1 ? ` <small>${p.sheet}/${p.sheets}</small>` : '';
-          return `<button type="button" role="tab" id="tab-${p.tab === 'Sched. A' ? 'schedule-a' : p.id}" data-page="${p.id}"
-            aria-selected="${on}" tabindex="${on ? 0 : -1}"
-            class="tab t${i % 4}${stacked}"><b>${i + 1}</b> ${esc(p.tab)}${count}</button>`;
+          const attrs = `role="tab" id="tab-${p.tab}" data-page="${p.id}" aria-selected="${on}" tabindex="${on ? 0 : -1}"`;
+          if (p.tab === 'settings') return `<button type="button" ${attrs} class="tab gear" aria-label="${esc(p.label)}" title="${esc(p.label)}">${GEAR}</button>`;
+          const label = p.short ? `<span class="long">${esc(p.label)}</span><span class="short">${esc(p.short)}</span>` : esc(p.label);
+          return `<button type="button" ${attrs} class="tab t${i % 4}${stacked}"><b>${i + 1}</b> ${label}${count}</button>`;
         })
         .join('')}
     </nav>
   </div>`;
-  if (focused) app.querySelector<HTMLElement>(`${kind}[data-page="${focused}"]`)?.focus();
+  if (field) {
+    const el = app.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-keep="${field}"]`);
+    el?.focus();
+    try {
+      if (el && caret) el.setSelectionRange(caret[0] ?? null, caret[1] ?? null);
+    } catch {
+      // A URL field has no selection to restore.
+    }
+  } else if (focused) app.querySelector<HTMLElement>(`${kind}[data-page="${focused}"]`)?.focus();
 }
 
 // --- Wiring -----------------------------------------------------------------------------------
 
 async function load(): Promise<State> {
-  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs, KEYS.log]);
+  const got = await chrome.storage.local.get([KEYS.live, KEYS.standings, KEYS.airports, KEYS.totals, KEYS.selected, KEYS.prefs, KEYS.log, KEYS.fleet]);
   const live = got[KEYS.live] as Snapshot | undefined;
   const ledgerKey = live ? KEYS.ledger(live.pid) : undefined;
   const saved = ledgerKey ? ((await chrome.storage.local.get(ledgerKey))[ledgerKey] as Ledger | undefined) : undefined;
@@ -540,6 +795,7 @@ async function load(): Promise<State> {
     standings: (got[KEYS.standings] as Record<string, AirportStandings> | undefined) ?? {},
     airports: (got[KEYS.airports] as Record<string, AirportInfo> | undefined) ?? {},
     totals: (got[KEYS.totals] as TotalsHistory | undefined) ?? {},
+    fleet: (got[KEYS.fleet] as FleetHistory | undefined) ?? {},
     selected: got[KEYS.selected] as State['selected'],
     prefs,
     log: log?.co === live?.co ? log : undefined,
@@ -586,6 +842,8 @@ document.addEventListener('click', (e) => {
     const next = Math.round((zoomOf(state) + Number(size.dataset.zoom) / 10) * 10) / 10;
     return setPrefs({ zoom: Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) });
   }
+  const backup = el.closest<HTMLElement>('[data-backup]');
+  if (backup) return backupAction(backup.dataset.backup!);
   const claimBox = el.closest<HTMLElement>('[data-claim], [data-unclaim]');
   if (claimBox && state?.live) return toggleClaim(state, claimBox);
   const tab = el.closest<HTMLElement>('[data-page]');
@@ -623,8 +881,100 @@ document.addEventListener('submit', async (e) => {
     const ok = await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false);
     if (!ok) return;
   }
+  kept.delete('logUrl');
   setPrefs({ logUrl: raw || undefined });
   chrome.runtime.sendMessage({ kb: true, type: 'log' }).catch(() => {});
+});
+
+// Typed values survive the redraws that storage changes cause.
+document.addEventListener('input', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLInputElement | HTMLTextAreaElement>('[data-keep]');
+  if (el) kept.set(el.dataset.keep!, el.value);
+});
+
+// --- Backup and restore -----------------------------------------------------------------------
+
+const redraw = (status?: string, error = false) => {
+  backupUi.status = status;
+  backupUi.error = error;
+  if (state) render(state);
+};
+
+async function backupText() {
+  const all = await chrome.storage.local.get(null);
+  const b = makeBackup(all, VERSION, Date.now());
+  return { text: JSON.stringify(b), records: Object.keys(b.data).length };
+}
+
+/** Reads a backup to restore, and asks to confirm it. */
+function stage(text: string) {
+  try {
+    backupUi.pending = { text, backup: parseBackup(text) };
+    redraw();
+  } catch (e) {
+    backupUi.pending = undefined;
+    redraw(e instanceof Error ? e.message : String(e), true);
+  }
+}
+
+async function backupAction(what: string) {
+  try {
+    if (what === 'download') {
+      const { text, records } = await backupText();
+      const name = `pocket-kneeboard-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+      return redraw(`Saved ${records} records as ${name}.`);
+    }
+    if (what === 'copy') {
+      const { text, records } = await backupText();
+      await navigator.clipboard.writeText(text);
+      return redraw(`Copied ${records} records to the clipboard. Paste them somewhere safe.`);
+    }
+    if (what === 'paste') {
+      const text = (kept.get('paste') ?? '').trim();
+      return text ? stage(text) : redraw('Paste a backup in the box first.', true);
+    }
+    if (what === 'cancel') {
+      backupUi.pending = undefined;
+      return redraw();
+    }
+    if (what === 'restore' && backupUi.pending) {
+      const { text, backup } = backupUi.pending;
+      const res = (await chrome.runtime.sendMessage({ kb: true, type: 'restore', payload: { text } } satisfies { kb: true } & PanelMessage)) as
+        | { ok?: boolean; error?: string }
+        | undefined;
+      if (!res?.ok) return redraw(`Not restored: ${res?.error ?? 'no reply from the extension'}.`, true);
+      backupUi.pending = undefined;
+      kept.delete('paste');
+      kept.delete('logUrl');
+      const { records } = describeBackup(backup);
+      // The log's site needs this browser's permission, which a backup can't bring along.
+      const url = (backup.data[KEYS.prefs] as Prefs | undefined)?.logUrl;
+      let origin: string | undefined;
+      try {
+        origin = url ? new URL(url.replaceAll('{id}', 'x')).origin : undefined;
+      } catch {
+        origin = undefined;
+      }
+      const allowed = origin ? await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false) : true;
+      const more = allowed ? '' : ' Press Save next to the landing log’s URL to let this browser read it.';
+      return redraw(`Restored ${records} records.${more}`);
+    }
+  } catch (e) {
+    redraw(e instanceof Error ? e.message : String(e), true);
+  }
+}
+
+document.addEventListener('change', async (e) => {
+  const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-restore-file]');
+  const file = input?.files?.[0];
+  if (!file) return;
+  if (file.size > 20_000_000) return redraw('That file is too big to be a backup.', true);
+  stage(await file.text());
 });
 
 document.addEventListener('keydown', (e) => {

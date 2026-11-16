@@ -283,6 +283,20 @@ button {
   outline: 1px dashed var(--pen);
   outline-offset: -4px;
 }
+/* Settings: a small grey tab at the end with only a gear on it. */
+.tab.gear {
+  flex: 0 0 30px;
+  padding: 4px 0 0;
+  background: #d4d0c6;
+  color: var(--ink-soft);
+}
+.tab.gear[aria-selected='true'] {
+  background: var(--paper);
+  color: var(--ink);
+}
+.tab .short {
+  display: none;
+}
 
 /* --- Printed form parts ------------------------------------------------------------------- */
 
@@ -424,9 +438,14 @@ button {
   pointer-events: none;
 }
 /* Print size: two small printed keys either side of the typed percentage. */
-.size .val {
+.size {
+  display: flex;
+  align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
+  margin: 2px 0;
+}
+.size .small {
+  margin-left: 6px;
 }
 .size button {
   flex: none;
@@ -513,6 +532,20 @@ button {
 }
 .bubble.part::after {
   clip-path: inset(0 calc(100% - var(--fill)) 0 0);
+}
+/* A job on offer: the part of the bubbles it would fill, shaded lightly with a pencil. */
+.bubble.add::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 47% 53% 50% 48%;
+  background: repeating-linear-gradient(115deg, color-mix(in srgb, var(--graphite) 75%, transparent) 0 1.2px, transparent 1.2px 2.4px),
+    color-mix(in srgb, var(--graphite) 18%, transparent);
+  clip-path: inset(0 calc(100% - var(--to)) 0 var(--from));
+  filter: url(#rough);
+}
+.lbl .adds {
+  color: var(--ink-soft);
 }
 
 /* Worksheet lines */
@@ -941,6 +974,111 @@ footer:has(~ .curl.prev) {
   font-size: 9.5px;
 }
 
+/* --- Fleet ---------------------------------------------------------------------------------- */
+
+.ledger.fleet th {
+  text-align: center;
+  white-space: normal;
+  line-height: 1.1;
+}
+.ledger.fleet thead tr:first-child th:nth-child(1) {
+  width: 37%;
+}
+.ledger.fleet thead tr:first-child th:nth-child(3) {
+  width: 15%;
+}
+.ledger.fleet tbody td.ac {
+  position: relative;
+  max-width: 0;
+}
+.ledger.fleet td.ac small {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  right: 2px;
+  font-size: 6.5px;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ledger.fleet td.ac .hw {
+  font-size: 16px;
+  line-height: 15px;
+}
+.ledger.fleet tr.sect th {
+  text-align: left;
+  font-size: 7.5px;
+  background: var(--paper-2);
+}
+.ledger.fleet tr.sum td {
+  border: 1px solid var(--ink);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  background: var(--shade);
+  white-space: nowrap;
+}
+.ledger td .hw.dash {
+  color: var(--ink-soft);
+}
+
+/* --- Settings ------------------------------------------------------------------------------- */
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 3px 0 5px;
+}
+.btn {
+  display: inline-block;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--ink);
+  background: var(--shade);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn:focus-visible,
+.btn:has(input:focus-visible) {
+  outline: 1px dashed var(--pen);
+  outline-offset: 1px;
+}
+.settings textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  font: 9px/1.3 var(--f-type);
+  padding: 3px 4px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+}
+.confirm {
+  margin: 4px 0;
+  padding: 5px 7px 1px;
+  border: 1.5px solid var(--stamp);
+  background: color-mix(in srgb, var(--stamp) 6%, var(--paper));
+}
+.confirm p {
+  text-align: left;
+}
+.status.bad {
+  color: var(--stamp);
+  font-weight: 600;
+}
+
 /* --- Remarks -------------------------------------------------------------------------------- */
 
 /* Each part's remarks: four ruled lines. Schedule A's take whatever room is left on the page. */
@@ -991,10 +1129,19 @@ footer:has(~ .curl.prev) {
 .board {
   container-type: inline-size;
 }
-.box.size {
-  flex: 0 0 auto;
+/* Five tabs: below 480px the longer labels give way to short ones ("Log", "Help"). */
+@container (max-width: 480px) {
+  .tab .long {
+    display: none;
+  }
+  .tab .short {
+    display: inline;
+  }
 }
 @container (max-width: 360px) {
+  .tab b {
+    display: none;
+  }
   .line {
     font-size: 8.5px;
     gap: 2px;
