@@ -9,7 +9,8 @@ WXT + TypeScript, no UI framework. `npm run build` writes `_output/chrome-mv3`, 
 panel with sample data in its own headless Chromium, which is safe while the user plays. It also
 checks every page at 320-560px wide and at 130%/150% print, and fails on any overflow. Headless
 Chromium won't make a window narrower than 500px, so the preview shows the panel in an iframe of
-the exact size. Don't trust `--window-size` alone for narrow layouts.
+the exact size. Don't trust `--window-size` alone for narrow layouts. `npm run screenshots`
+renders the README's pictures (see Releases).
 
 - `src/entrypoints/game.content.ts`: MAIN world, `document_start`. Wraps `Storage.prototype.setItem`
   and `fetch`, calls the originals first, and posts sanitized events with `window.postMessage`.
@@ -34,8 +35,11 @@ Do these steps when the user asks for a release:
 
 1. Bump `version` in `package.json`.
 2. Add a section for that version at the top of `CHANGELOG.md`, written for players.
-3. Commit both together as "Pocket Kneeboard X.Y.Z".
-4. Tag that commit with an annotated tag: `git tag -a vX.Y.Z -m "Pocket Kneeboard X.Y.Z"`.
+3. Run `npm run screenshots`. It rebuilds and renders each page with the made-up data in
+   `scripts/preview.mjs` into `docs/screenshots/*.webp`, which the README shows. Look at them:
+   a new page or feature may need sample data, a picture and a line in the README.
+4. Commit all of it together as "Pocket Kneeboard X.Y.Z".
+5. Tag that commit with an annotated tag: `git tag -a vX.Y.Z -m "Pocket Kneeboard X.Y.Z"`.
 
 Pushing the tag runs `.github/workflows/release.yml`, which publishes a GitHub release. Ask the
 user before you push.

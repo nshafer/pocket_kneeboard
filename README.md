@@ -7,6 +7,19 @@ airport influence that **you** add, which the game itself shows only per company
 The extension doesn’t change the game’s screen. It reads the game’s save, the game’s server replies
 and the text the game draws. It never writes to the save and never changes the game’s requests.
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/flight.webp" alt="The Flight page: your influence at your airport, and what the job you picked would do at another" width="260"></td>
+    <td><img src="docs/screenshots/log.webp" alt="The Log: each flight this week with its net pay and influence" width="260"></td>
+    <td><img src="docs/screenshots/fleet.webp" alt="The Fleet page: net pay and influence per hour for each plane" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Flight</b></td>
+    <td align="center"><b>Log</b></td>
+    <td align="center"><b>Fleet</b></td>
+  </tr>
+</table>
+
 ## What it shows
 
 The **Flight** page has two parts:
@@ -36,6 +49,33 @@ The **Flight** page has two parts:
 - **Settings** (the gear): **Print size**, from 50% to 150%; the landing log’s URL; and
   **Backup and restore**, which saves all your records as a file (or to the clipboard) and loads
   them back, for example into another browser.
+
+A page too long for one sheet continues on another: turn it at the curled corner.
+
+<details>
+<summary>More pictures: in flight, Airports, Help and Settings</summary>
+<br>
+<table>
+  <tr>
+    <td><img src="docs/screenshots/flight-in-the-air.webp" alt="The Flight page in the air: your origin, and your destination with the job you're flying" width="260"></td>
+    <td><img src="docs/screenshots/airports.webp" alt="Airports: your influence and the room left at each airport this week" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Flight</b>, in the air</td>
+    <td align="center"><b>Airports</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/help.webp" alt="The instructions" width="260"></td>
+    <td><img src="docs/screenshots/settings.webp" alt="Settings: print size, landing log and backup" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Help</b></td>
+    <td align="center"><b>Settings</b></td>
+  </tr>
+</table>
+</details>
+
+The pictures use made-up pilots, companies and planes.
 
 ### The figures are estimates
 
@@ -114,6 +154,7 @@ npm run build      # build into _output/chrome-mv3
 npm test           # unit tests for the save reader and influence maths
 npm run check      # type check
 npm run preview    # screenshots of the panel with sample data, into preview/ (needs `chromium`)
+npm run screenshots # the README's pictures, into docs/screenshots/
 npm run zip        # the release zip
 ```
 

@@ -1,7 +1,11 @@
 // Renders the built side panel with made-up data, in a headless Chromium of its own, and saves
 // screenshots. It does not touch the dev browser or the game.
 //
-//   npm run build && node scripts/preview.mjs [outDir]
+//   npm run build && node scripts/preview.mjs [outDir]   checks every page at several sizes
+//   npm run screenshots                                   the README's pictures, in docs/screenshots
+//
+// With --docs it renders one picture of each page at 2x, at a fixed time on a Wednesday in UTC, so
+// the week is half flown whatever day it runs. The data is made up: no real pilot, company or plane.
 import { createServer } from 'node:http';
 import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,14 +13,21 @@ import { execFile } from 'node:child_process';
 import { extname, join, resolve } from 'node:path';
 
 const root = resolve('_output/chrome-mv3');
-const out = resolve(process.argv[2] ?? 'preview');
+const docs = process.argv.includes('--docs');
+const out = resolve(process.argv.slice(2).find((a) => !a.startsWith('--')) ?? (docs ? 'docs/screenshots' : 'preview'));
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 await mkdir(out, { recursive: true });
 // Chromium's profile goes in a fresh temp folder: on the workspace mount, a profile costs each
 // run about 4 seconds.
 const home = await mkdtemp(join(tmpdir(), 'pocket_kneeboard-preview-'));
 
-const now = Date.now();
 const day = 86_400_000;
+// For the README: Wednesday 14:20 UTC of this week. The page's clock is set to it too.
+const wednesday = (() => {
+  const d = new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - ((d.getUTCDay() + 6) % 7) * day + 2 * day + (14 * 60 + 20) * 60_000;
+})();
+const now = docs ? wednesday : Date.now();
 const pid = 'demo';
 const entry = (code, name, daysAgo, pay, extra = {}) => ({
   t: now - daysAgo * day,
@@ -26,7 +37,7 @@ const entry = (code, name, daysAgo, pay, extra = {}) => ({
   counted: true,
   src: 'report',
   job: `${code}-${daysAgo}-${pay}`,
-  reg: 'N872CZ',
+  reg: 'N205KB',
   t0: now - daysAgo * day - 40 * 60_000,
   from: 'EIDW',
   net: Math.round(pay * 1.03),
@@ -37,27 +48,27 @@ const data = {
     t: now,
     schema: 27,
     pid,
-    callsign: 'N1C0',
+    callsign: 'N8KB',
     co: 'c1',
-    coName: 'Non-Stop Airlines',
-    coTag: 'NSA',
+    coName: 'Skyline Air',
+    coTag: 'SKY',
     at: { code: 'EIDW', name: 'Dublin' },
     active: null,
     visited: { EIDW: { n: 9, name: 'Dublin' }, EGNH: { n: 3, name: 'Blackpool' }, EGOW: { n: 1, name: 'Woodvale' } },
-    plane: 'N872CZ',
+    plane: 'N205KB',
     fleet: [
-      { reg: 'N872CZ', type: 'kite', name: 'SWINGER', at: 'EIDW', hours: 22.1, paid: 609_960, co: false },
-      { reg: 'N503KU', type: 'petrel', name: 'SEAWING', at: 'EGBT', hours: 18.9, paid: 324_360, co: false },
-      { reg: 'N928HL', type: 'puffin', at: 'LFXU', hours: 18.5, paid: 251_640, co: false },
-      { reg: 'N158WE', type: 'skylark', at: 'EGNS', hours: 4.05, paid: 0, co: false },
-      { reg: 'N623YH', type: 'sparrow', at: 'EGOE', hours: 0.04, paid: 0, co: false },
-      { reg: 'N706BS', type: 'shire', name: 'Merry', at: 'EGSS', hours: 113.7, paid: 161_130, paidH: 7.19, co: true },
-      { reg: 'N869CV', type: 'shire', name: 'Pippin', at: 'EGCC', hours: 72.8, co: true },
-      { reg: 'N566AN', type: 'zephyr', hours: 117.0, paid: 3_252_810, paidH: 74.8, co: true },
-      { reg: 'N622RM', type: 'zephyr', name: 'NO SUCH AIRPLANE', at: 'HESX', hours: 116.3, paid: 3_823_300, paidH: 80.36, co: true },
-      { reg: 'N461AG', type: 'stratus', name: 'Herugrim', hours: 73.8, paid: 2_365_070, paidH: 71.36, co: true },
-      { reg: 'N483HL', type: 'pelican', hours: 39.5, paid: 2_600_870, paidH: 39.5, co: true },
-      { reg: 'N730MS', type: 'skyliner', name: 'HYDRA', hours: 0, co: true },
+      { reg: 'N205KB', type: 'kite', name: 'BLUEBIRD', at: 'EIDW', hours: 22.1, paid: 609_960, co: false },
+      { reg: 'N318PK', type: 'petrel', name: 'SEA BISCUIT', at: 'EGBT', hours: 18.9, paid: 324_360, co: false },
+      { reg: 'N442TR', type: 'puffin', at: 'LFXU', hours: 18.5, paid: 251_640, co: false },
+      { reg: 'N517LM', type: 'skylark', at: 'EGNS', hours: 4.05, paid: 0, co: false },
+      { reg: 'N731WQ', type: 'sparrow', at: 'EGOE', hours: 0.04, paid: 0, co: false },
+      { reg: 'N104CL', type: 'shire', name: 'Clover', at: 'EGSS', hours: 113.7, paid: 161_130, paidH: 7.19, co: true },
+      { reg: 'N116BR', type: 'shire', name: 'Bramble', at: 'EGCC', hours: 72.8, co: true },
+      { reg: 'N250NO', type: 'zephyr', hours: 117.0, paid: 3_252_810, paidH: 74.8, co: true },
+      { reg: 'N262AT', type: 'zephyr', name: 'NIGHT OWL', at: 'HESX', hours: 116.3, paid: 3_823_300, paidH: 80.36, co: true },
+      { reg: 'N377NW', type: 'stratus', name: 'Northwind', hours: 73.8, paid: 2_365_070, paidH: 71.36, co: true },
+      { reg: 'N480PL', type: 'pelican', hours: 39.5, paid: 2_600_870, paidH: 39.5, co: true },
+      { reg: 'N590AS', type: 'skyliner', name: 'ATLAS', hours: 0, co: true },
     ],
   },
   [`kb:ledger:${pid}`]: {
@@ -79,8 +90,8 @@ const data = {
     ],
   },
   'kb:standings': {
-    EIDW: { code: 'EIDW', t: now - 4 * 60_000, holder: 'c1', list: [{ id: 'c1', value: 277_100 }, { id: 'c2', value: 197_740 }], cos: { c1: { tag: 'NSA' }, c2: { tag: 'SRAK' } } },
-    EGNH: { code: 'EGNH', t: now - 2 * 60_000, holder: 'c2', list: [{ id: 'c2', value: 90_000 }, { id: 'c1', value: 44_000 }], cos: { c1: { tag: 'NSA' }, c2: { tag: 'VANG' } } },
+    EIDW: { code: 'EIDW', t: now - 4 * 60_000, holder: 'c1', list: [{ id: 'c1', value: 277_100 }, { id: 'c2', value: 197_740 }], cos: { c1: { tag: 'SKY' }, c2: { tag: 'ORCA' } } },
+    EGNH: { code: 'EGNH', t: now - 2 * 60_000, holder: 'c2', list: [{ id: 'c2', value: 90_000 }, { id: 'c1', value: 44_000 }], cos: { c1: { tag: 'SKY' }, c2: { tag: 'VTX' } } },
   },
   // The landing log: a phone flight into EIDW shared with a teammate, and one into EGNH whose pay
   // the log couldn't measure.
@@ -92,33 +103,33 @@ const data = {
       co: 'c1',
       updated: now - 60_000,
       landings: [
-        { key: 'demo:1', pid, cs: 'N1C0', to: 'EIDW', t0: now - 90 * 60_000, t: now - 50 * 60_000, how: 'shared', pay: 8_000, with: [{ pid: 'm8', cs: 'MATE' }], reg: 'N503KU' },
-        { key: 'demo:2', pid, cs: 'N1C0', to: 'EGNH', t0: now - 30 * 60_000, t: now - 10 * 60_000, how: 'unknown', pay: null, reg: 'N503KU' },
-        { key: 'm8:1', pid: 'm8', cs: 'MATE', to: 'EGLL', t0: now - 3 * day, t: now - 3 * day + 2 * 3_600_000, how: 'measured', pay: 96_000, reg: 'N622RM' },
-        { key: 'm8:2', pid: 'm8', cs: 'MATE', to: 'EHAM', t0: now - 2 * day, t: now - 2 * day + 3 * 3_600_000, how: 'measured', pay: 141_000, reg: 'N622RM' },
-        { key: 'm9:1', pid: 'm9', cs: 'ACE', to: 'LFPG', t0: now - day, t: now - day + 4 * 3_600_000, how: 'measured', pay: 188_500, reg: 'N566AN' },
-        { key: 'm9:2', pid: 'm9', cs: 'ACE', to: 'EGCC', t0: now - 4 * day, t: now - 4 * day + 3_600_000, how: 'measured', pay: 42_300, reg: 'N706BS' },
+        { key: 'demo:1', pid, cs: 'N8KB', to: 'EIDW', t0: now - 90 * 60_000, t: now - 50 * 60_000, how: 'shared', pay: 8_000, with: [{ pid: 'm8', cs: 'MATE' }], reg: 'N318PK' },
+        { key: 'demo:2', pid, cs: 'N8KB', to: 'EGNH', t0: now - 30 * 60_000, t: now - 10 * 60_000, how: 'unknown', pay: null, reg: 'N318PK' },
+        { key: 'm8:1', pid: 'm8', cs: 'MATE', to: 'EGLL', t0: now - 3 * day, t: now - 3 * day + 2 * 3_600_000, how: 'measured', pay: 96_000, reg: 'N262AT' },
+        { key: 'm8:2', pid: 'm8', cs: 'MATE', to: 'EHAM', t0: now - 2 * day, t: now - 2 * day + 3 * 3_600_000, how: 'measured', pay: 141_000, reg: 'N262AT' },
+        { key: 'm9:1', pid: 'm9', cs: 'ACE', to: 'LFPG', t0: now - day, t: now - day + 4 * 3_600_000, how: 'measured', pay: 188_500, reg: 'N250NO' },
+        { key: 'm9:2', pid: 'm9', cs: 'ACE', to: 'EGCC', t0: now - 4 * day, t: now - 4 * day + 3_600_000, how: 'measured', pay: 42_300, reg: 'N104CL' },
       ],
     },
   },
   'kb:selected': { code: 'EGNH', t: now - 2 * 60_000, via: 'board', job: { pay: 50_000, time: '45m' } },
   'kb:airports': {
-    EIDW: { code: 'EIDW', t: now, name: 'Dublin', held: { co: 'c1', v: 277_100, tag: 'NSA' }, selected: false },
+    EIDW: { code: 'EIDW', t: now, name: 'Dublin', held: { co: 'c1', v: 277_100, tag: 'SKY' }, selected: false },
     EGNH: {
       code: 'EGNH',
       t: now,
       name: 'Blackpool',
-      held: { co: 'c2', v: 90_000, tag: 'VANG' },
+      held: { co: 'c2', v: 90_000, tag: 'VTX' },
       selected: true,
       via: 'board',
       job: { pay: 50_000, time: '45m' },
       landed: [
         { cs: 'MATE', t: now - 40 * 60_000, me: false },
-        { cs: 'N1C0', t: now - 3 * 3_600_000, me: true },
+        { cs: 'N8KB', t: now - 3 * 3_600_000, me: true },
       ],
     },
   },
-  // NSA's total at EGNH rose $26,000 today; the ledger logged $18,400 of it. At EIDW (Part I) it
+  // SKY's total at EGNH rose $26,000 today; the ledger logged $18,400 of it. At EIDW (Part I) it
   // rose $17,010 in the last hour with nothing logged: a flight on another device. That remark
   // wraps and adds a "This was me" line, the most Part I's remarks usually hold.
   'kb:totals': {
@@ -133,18 +144,18 @@ const data = {
   },
   // Each plane's hours and pay eight days ago: the start of the Fleet page's last 7 days.
   'kb:fleet': {
-    N872CZ: [{ t: now - 8 * day, hours: 15.6, paid: 380_000 }],
-    N503KU: [{ t: now - 8 * day, hours: 16.4, paid: 270_000 }],
-    N928HL: [{ t: now - 8 * day, hours: 18.5, paid: 251_640 }],
-    N158WE: [{ t: now - 8 * day, hours: 4.05, paid: 0 }],
-    N623YH: [{ t: now - 8 * day, hours: 0.04, paid: 0 }],
-    N706BS: [{ t: now - 8 * day, hours: 110.2, paid: 120_000, paidH: 5.1 }],
-    N869CV: [{ t: now - 8 * day, hours: 70.1 }],
-    N566AN: [{ t: now - 8 * day, hours: 101.0, paid: 2_800_000, paidH: 63.3 }],
-    N622RM: [{ t: now - 8 * day, hours: 104.9, paid: 3_400_000, paidH: 70.0 }],
-    N461AG: [{ t: now - 8 * day, hours: 73.8, paid: 2_365_070, paidH: 71.36 }],
-    N483HL: [{ t: now - 8 * day, hours: 30.0, paid: 1_900_000, paidH: 30.0 }],
-    N730MS: [{ t: now - 2 * day, hours: 0 }],
+    N205KB: [{ t: now - 8 * day, hours: 15.6, paid: 380_000 }],
+    N318PK: [{ t: now - 8 * day, hours: 16.4, paid: 270_000 }],
+    N442TR: [{ t: now - 8 * day, hours: 18.5, paid: 251_640 }],
+    N517LM: [{ t: now - 8 * day, hours: 4.05, paid: 0 }],
+    N731WQ: [{ t: now - 8 * day, hours: 0.04, paid: 0 }],
+    N104CL: [{ t: now - 8 * day, hours: 110.2, paid: 120_000, paidH: 5.1 }],
+    N116BR: [{ t: now - 8 * day, hours: 70.1 }],
+    N250NO: [{ t: now - 8 * day, hours: 101.0, paid: 2_800_000, paidH: 63.3 }],
+    N262AT: [{ t: now - 8 * day, hours: 104.9, paid: 3_400_000, paidH: 70.0 }],
+    N377NW: [{ t: now - 8 * day, hours: 73.8, paid: 2_365_070, paidH: 71.36 }],
+    N480PL: [{ t: now - 8 * day, hours: 30.0, paid: 1_900_000, paidH: 30.0 }],
+    N590AS: [{ t: now - 2 * day, hours: 0 }],
   },
 };
 
@@ -178,9 +189,10 @@ const stub = (q) => {
   }
   delete store.long;
   return `<script>
+  Date.now = () => ${now};
   const data = ${JSON.stringify(store)};
   window.chrome = {
-    runtime: { getManifest: () => ({ version: '0.1.0' }), sendMessage: async () => {} },
+    runtime: { getManifest: () => ({ version: ${JSON.stringify(version)} }), sendMessage: async () => {} },
     storage: {
       local: {
         get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in data).map((x) => [x, data[x]])),
@@ -235,7 +247,8 @@ const chromium = (args) =>
     execFile(
       'chromium',
       ['--headless', '--no-sandbox', '--disable-gpu', '--hide-scrollbars', '--no-proxy-server', '--virtual-time-budget=1000', ...args],
-      { env: { ...process.env, HOME: home }, maxBuffer: 1 << 24 },
+      // UTC, so the README's times don't depend on where it was made.
+      { env: { ...process.env, HOME: home, ...(docs ? { TZ: 'UTC' } : {}) }, maxBuffer: 1 << 24 },
       (err, stdout) => (err ? fail(err) : ok(stdout)),
     ),
   );
@@ -293,6 +306,27 @@ jobs.push(async () => {
   await chromium(['--window-size=500,640', `--screenshot=${join(out, 'short-viewport.png')}`, `http://127.0.0.1:${port}/frame?w=420&h=640&page=worksheet`]);
   return { ok: true };
 });
+// The README's pictures replace the checks: one of each page, at 2x, in a 500px panel. WebP: the
+// paper's grain makes a PNG of each about 2.5 MB, a WebP about 250 KB.
+if (docs) {
+  jobs.length = 0;
+  const shots = [
+    ['flight', 'page=worksheet'],
+    ['flight-in-the-air', 'page=worksheet&flying=1&nosel=1'],
+    ['log', 'page=log'],
+    ['airports', 'page=airports'],
+    ['fleet', 'page=fleet'],
+    ['help', 'page=instructions'],
+    ['settings', 'page=settings'],
+  ];
+  for (const [name, q] of shots) {
+    jobs.push(async () => {
+      const url = `http://127.0.0.1:${port}/frame?w=500&h=860&${q}&zoom=1`;
+      await chromium(['--window-size=500,860', '--force-device-scale-factor=2', `--screenshot=${join(out, `${name}.webp`)}`, url]);
+      return { ok: true, line: `saved   ${name}.png` };
+    });
+  }
+}
 const results = new Array(jobs.length);
 let next = 0;
 const worker = async () => {
