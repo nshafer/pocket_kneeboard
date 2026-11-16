@@ -40,6 +40,20 @@ class RepairTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             rz.repair({'landings': [landing('x', FIX - H)]}, FIX, [(['x', 'nope'], 100)])
 
+    def test_each_company_gets_its_own_splits(self):
+        import json, os, tempfile
+        d = tempfile.mkdtemp()
+        for co, keys in (('a', ['x', 'y']), ('b', ['z'])):
+            with open(os.path.join(d, f'{co}.json'), 'w') as f:
+                json.dump({'landings': [landing(k, FIX - H) for k in keys]}, f)
+        rz.main(['--out', d, '--co', 'a', '--co', 'b', '--before', '2026-11-16T14:15:00Z', '--split', 'x,y=100', '--write'])
+        a = json.load(open(os.path.join(d, 'a.json')))['landings']
+        b = json.load(open(os.path.join(d, 'b.json')))['landings']
+        self.assertEqual([(l['how'], l['pay']) for l in a], [('shared', 50), ('shared', 50)])
+        self.assertEqual([(l['how'], l['pay']) for l in b], [('unknown', None)])
+        with self.assertRaises(SystemExit):
+            rz.main(['--out', d, '--co', 'a', '--co', 'b', '--before', '2026-11-16T14:15:00Z', '--split', 'x,z=100'])
+
 
 if __name__ == '__main__':
     unittest.main()

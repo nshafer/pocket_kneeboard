@@ -15,7 +15,7 @@ with an even split, like the poller logs landings that share a rise.
 Dry run unless --write. With --write, keeps a copy of the old file next to it, and holds the
 poller's lock so it doesn't run at the same time. Only the standard library. Python 3.9+.
 
-    python3 repair_zero_landings.py --out /var/www/kneeboard --co bmsx3mly \\
+    python3 repair_zero_landings.py --out /var/www/kneeboard --co bmsx3mly --co OTHER \\
         --before 2026-11-16T14:15:00Z --split PID:T0,PID:T0=33030 --write
 """
 
@@ -45,7 +45,8 @@ def parse_split(s: str) -> tuple[list[str], int]:
 
 
 def repair(state: dict, before: int, splits: list[tuple[list[str], int]]) -> list[str]:
-    """Repairs `state` in place. Returns a line for each landing it changed."""
+    """Repairs `state` in place. Returns a line for each landing it changed. Each split must name
+    landings in this log: see splits_for()."""
     changes: list[str] = []
     landings = state.get('landings', [])
     by_key = {l.get('key'): l for l in landings}
@@ -71,32 +72,45 @@ def repair(state: dict, before: int, splits: list[tuple[list[str], int]]) -> lis
     return changes
 
 
+def splits_for(state: dict, splits: list[tuple[list[str], int]]) -> list[tuple[list[str], int]]:
+    """The splits whose landings are all in this log."""
+    keys = {l.get('key') for l in state.get('landings', [])}
+    return [sp for sp in splits if all(k in keys for k in sp[0])]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--out', required=True, help='the poller\'s folder of {id}.json files')
-    ap.add_argument('--co', required=True, help='company id')
+    ap.add_argument('--co', action='append', required=True, help='company id (repeat for each company)')
     ap.add_argument('--before', required=True, type=parse_time, help='when the fixed poller started, e.g. 2026-11-16T14:15:00Z')
     ap.add_argument('--split', action='append', default=[], type=parse_split, metavar='KEY,KEY=AMOUNT',
                     help='landings that share a known rise, split evenly (repeat for each group)')
     ap.add_argument('--write', action='store_true', help='save the changes (otherwise only list them)')
     args = ap.parse_args(argv)
 
-    path = os.path.join(args.out, f'{args.co}.json')
     lock = open(os.path.join(args.out, '.kneeboard.lock'), 'w')
     fcntl.flock(lock, fcntl.LOCK_EX)  # wait for a running poll to finish
-    with open(path) as f:
-        state = json.load(f)
+    states = {}
+    for co in args.co:
+        with open(os.path.join(args.out, f'{co}.json')) as f:
+            states[co] = json.load(f)
+    # Every split must belong to one of the logs, or it was mistyped.
+    for keys, _ in args.split:
+        if not any(all(k in {l.get('key') for l in st.get('landings', [])} for k in keys) for st in states.values()):
+            raise SystemExit(f'no log holds all of: {", ".join(keys)}')
 
-    changes = repair(state, args.before, args.split)
-    print('\n'.join(changes) or 'nothing to repair')
-    if not args.write:
-        print(f'\n{len(changes)} landing(s) would change. Add --write to save.')
-        return 0
-    if changes:
-        backup = f'{path}.{time.strftime("%Y%m%d-%H%M%S")}.bak'
-        shutil.copy2(path, backup)
-        write_atomic(path, state)
-        print(f'\nSaved. The old file is {backup}')
+    for co, state in states.items():
+        path = os.path.join(args.out, f'{co}.json')
+        changes = repair(state, args.before, splits_for(state, args.split))
+        print(f'{co}:')
+        print('\n'.join(changes) or 'nothing to repair')
+        if not args.write:
+            print(f'{len(changes)} landing(s) would change. Add --write to save.\n')
+        elif changes:
+            backup = f'{path}.{time.strftime("%Y%m%d-%H%M%S")}.bak'
+            shutil.copy2(path, backup)
+            write_atomic(path, state)
+            print(f'Saved. The old file is {backup}\n')
     return 0
 
 

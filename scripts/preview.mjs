@@ -289,7 +289,7 @@ for (const [width, height, zoom] of sizes) {
       const over = /data-overflow="(-?\d+)"/.exec(dom)?.[1] ?? 'no report';
       const wide = Number(/data-wide="(-?\d+)"/.exec(dom)?.[1] ?? 0);
       const ok = over !== 'no report' && Number(over) <= 0 && wide <= 0;
-      if (!ok || ['worksheet', 'flying', 'flying-selected', 'parked', 'log', 'airports-long-2', 'fleet', 'instructions', 'instructions-2', 'settings'].includes(name)) {
+      if (!ok || ['worksheet', 'flying', 'flying-selected', 'parked', 'log', 'airports-long-2', 'fleet', 'fleet-long-2', 'instructions', 'instructions-2', 'settings'].includes(name)) {
         await chromium([win, `--screenshot=${join(out, `${name}-${width}${zoom !== '1' ? `-${zoom}x` : ''}.png`)}`, url]);
       }
       const wideNote = wide > 0 ? `, ${wide}px too wide` : '';

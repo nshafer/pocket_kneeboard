@@ -36,12 +36,8 @@ const VERSION = chrome.runtime.getManifest().version;
  * while it stays open, and says when it closes; this covers a close it couldn't report.
  */
 const SELECTED_FOR = 3 * 60_000;
-/** Ruled lines on one sheet of the flight log. Longer lists continue on another sheet. */
-const ROWS_PER_PAGE = 20;
-/** Ruled lines on one sheet of the log, which leaves room for its four remarks. */
-const LOG_ROWS = 17;
-/** Ruled lines on one sheet of the fleet list, section headings and totals included. */
-const FLEET_ROWS = 24;
+/** More blank lines than any sheet holds: a sheet of a list takes as many as fit. */
+const MAX_BLANK_LINES = 60;
 
 interface State {
   live?: Snapshot;
@@ -145,7 +141,7 @@ function line(n: number, text: string, amount: string, cls = '', unit: 'usd' | '
 function formHead(title: string, sub: string, right = 'Form Approved<br>OMB No. 2120-0250') {
   return `<header class="form-head">
     <div class="agency">U.S. Department of Transportation<br><b>Federal Aviation Administration</b></div>
-    <div class="form-title"><b>${title}</b><small>${sub}</small></div>
+    <div class="form-title"><b>${title}</b><small>${sub.replace(FORM, `<span class="form-no">${FORM}</span>`)}</small></div>
     <div class="omb">${right}</div>
   </header>`;
 }
@@ -405,15 +401,10 @@ function airportSheets(s: State, now: number): string[] {
   const more = unseen.length > 4 ? ` and ${unseen.length - 4} more` : '';
   const remarks: string[] = [];
   if (unseen.length) remarks.push(`${listed}${more}: landings in your logbook this Pocket Kneeboard didn’t see (other device?). Not counted.`);
-  if (rows.some((t) => t.pending)) remarks.push('+? : flights from another device with no exact pay yet. See the Flight page.');
   if (s.log?.log) remarks.push(`Landing log updated ${ago(s.log.log.updated, now)}.`);
   const remark = remarks.map((r, i) => hand(r, 'remark', `sched${i}`)).join('');
 
-  const chunks: Tally[][] = [];
-  for (let i = 0; i < Math.max(1, rows.length); i += ROWS_PER_PAGE) chunks.push(rows.slice(i, i + ROWS_PER_PAGE));
-
-  return chunks.map((chunk, i) => {
-    const last = i === chunks.length - 1;
+  return listSheets(rows, (chunk, i, last, lines) => {
     let body = '';
     for (const t of chunk) {
       const nc = noCredit(t);
@@ -425,21 +416,16 @@ function airportSheets(s: State, now: number): string[] {
         <td>${nc ? '' : `<span class="meter" style="--fill:${(t.thisWeek / WEEKLY_CAP) * 100}%"></span>`}</td>
       </tr>`;
     }
-    for (let r = chunk.length; r < ROWS_PER_PAGE; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
-    const cont = i > 0 ? ' (continued)' : '';
+    body += blankRows(lines - chunk.length, 5);
     return `
-      ${formHead(`Airports${cont}`, `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
+      ${formHead('Airports', `Influence by airport · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
       <table class="ledger">
         <caption>This week · amounts in thousands of dollars</caption>
         <thead><tr><th>Ident</th><th>Airport name</th><th>This wk</th><th>Room left</th><th>Of $250K</th></tr></thead>
         <tbody>${body}</tbody>
         ${last ? `<tfoot><tr><td colspan="2">Total, all airports</td><td class="num">${hand(thousands(total))}</td><td></td><td></td></tr></tfoot>` : ''}
       </table>
-      ${
-        last
-          ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : '<div class="grow"></div>'
-      }`;
+      ${remarksBox(remark)}`;
   });
 }
 
@@ -490,34 +476,22 @@ function logSheets(s: State, now: number): string[] {
   const infl = rows.reduce((a, f) => a + (f.status === 'counted' || f.status === 'claim' ? f.influence : 0), 0);
   const remarks: string[] = [];
   if (!rows.length) remarks.push(s.live ? 'No flights logged this week yet.' : 'Open Pocket Pilots in this tab and sign in. I’ll log your flights.');
-  else remarks.push('Net: report total. Infl.: base pay that counted.');
-  if (rows.some((f) => f.other)) remarks.push('* Another device (landing log): net not known.');
-  if (rows.some((f) => f.status === 'teammate')) remarks.push('≈ Split with a teammate: a guess, not totalled.');
-  if (rows.some((f) => f.status === 'unknown')) remarks.push('? Influence not measured.');
+  if (s.log?.log) remarks.push(`Landing log updated ${ago(s.log.log.updated, now)}.`);
   const remark = remarks.map((r, i) => hand(r, 'remark', `log${i}`)).join('');
 
-  const chunks: FlightRow[][] = [];
-  for (let i = 0; i < Math.max(1, rows.length); i += LOG_ROWS) chunks.push(rows.slice(i, i + LOG_ROWS));
-  return chunks.map((chunk, i) => {
-    const last = i === chunks.length - 1;
-    let body = chunk.map((f) => logRowHtml(s, f)).join('');
-    for (let r = chunk.length; r < LOG_ROWS; r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
-    const cont = i > 0 ? ' (continued)' : '';
+  return listSheets(rows, (chunk, i, last, lines) => {
+    let body = chunk.map((f) => logRowHtml(s, f)).join('') + blankRows(lines - chunk.length, 5);
     const n = flights.length;
     const foot = `<tfoot><tr><td colspan="3">Total, ${n} flight${n === 1 ? '' : 's'}</td><td class="num">${hand(thousands(net))}</td><td class="num">${hand(thousands(infl))}</td></tr></tfoot>`;
     return `
-      ${formHead(`Pilot’s Log${cont}`, `Flights this week · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
+      ${formHead('Pilot’s Log', `Flights this week · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. 0${i + 1}</b>`)}
       <table class="ledger flights">
         <caption>This week, newest first · amounts in thousands of dollars</caption>
         <thead><tr><th>When</th><th>To</th><th>Plane</th><th>Net</th><th>Infl.</th></tr></thead>
         <tbody>${body}</tbody>
         ${last ? foot : ''}
       </table>
-      ${
-        last
-          ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : '<div class="grow"></div>'
-      }`;
+      ${remarksBox(remark)}`;
   });
 }
 
@@ -601,24 +575,17 @@ function fleetSheets(s: State, now: number): string[] {
   else if (!planes.length) remarks.push('No planes in your save yet.');
   else {
     if (from > now - FLEET_WINDOW + 60 * 60_000) remarks.push(`Hours, net/h: since ${clock(from, now)}, when I began to note your fleet.`);
-    remarks.push(
-      s.log?.log
-        ? 'Infl./h: influence of your landings, and teammates’ from the landing log, over those flights’ hours.'
-        : 'Infl./h counts only your landings: set a landing log in Settings for your teammates’ and other devices.',
-    );
-    remarks.push('Life: the game’s own figure, net pay ÷ hours (company planes: ÷ hours on paid jobs). —: too few hours, or no pay kept.');
+    if (!s.log?.log) remarks.push('Infl./h counts only your landings: set a landing log in Settings for your teammates’ and other devices.');
   }
   const remark = remarks.map((r, i) => hand(r, 'remark', `fleet${i}`)).join('');
 
-  const chunks: FleetRow[][] = [];
-  for (let i = 0; i < Math.max(1, rows.length); i += FLEET_ROWS) chunks.push(rows.slice(i, i + FLEET_ROWS));
-  return chunks.map((chunk, i) => {
-    const last = i === chunks.length - 1;
-    let body = chunk.map(fleetRowHtml).join('');
-    for (let r = chunk.length; r < (last ? Math.min(FLEET_ROWS, 12) : FLEET_ROWS); r++) body += `<tr class="blank">${'<td></td>'.repeat(5)}</tr>`;
-    const cont = i > 0 ? ' (continued)' : '';
-    return `
-      ${formHead(`Fleet Report${cont}`, `Earnings by aircraft · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. ${String(i + 1).padStart(2, '0')}</b>`)}
+  return listSheets(rows, (chunk, i, last, lines) => {
+    // Blank lines go above the company total that ends the list, never after it.
+    const end = last && chunk.at(-1)?.kind === 'total' ? chunk.length - 1 : chunk.length;
+    const body =
+      chunk.slice(0, end).map(fleetRowHtml).join('') + blankRows(lines - chunk.length, 5) + chunk.slice(end).map(fleetRowHtml).join('');
+  return `
+      ${formHead('Fleet Report', `Earnings by aircraft · attach to ${FORM}`, `OMB No. 2120-0250<br><b>Attachment<br>Sequence No. ${String(i + 1).padStart(2, '0')}</b>`)}
       <table class="ledger fleet">
         <caption>Amounts in thousands of dollars per hour</caption>
         <thead>
@@ -627,12 +594,8 @@ function fleetSheets(s: State, now: number): string[] {
         </thead>
         <tbody>${body}</tbody>
       </table>
-      ${
-        last
-          ? `<div class="row remarks-row grow">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`
-          : '<div class="grow"></div>'
-      }`;
-  });
+      ${remarksBox(remark)}`;
+  }, (a, b) => a.kind !== 'head' && b.kind !== 'total'); // a heading stays with its first plane, a total with its last
 }
 
 // --- Instructions -----------------------------------------------------------------------------
@@ -661,7 +624,8 @@ function logForm(s: State) {
 
 function instructions(s: State): string[] {
   const since = s.ledger ? typed(dateUtc(s.ledger.since)) : 'the day you installed it';
-  const head = (i: number) => formHead(`Instructions${i ? ' (continued)' : ` for ${FORM}`}`, 'Read before you rely on this form', 'Keep with<br>the form');
+  // The same heading on every sheet, so a sheet's contents start at the same place on each.
+  const head = () => formHead(`Instructions for ${FORM}`, 'Read before you rely on this form', 'Keep with<br>the form');
   return flow(head, 'instr', [
     `<h3>Purpose of this form</h3>
       <p>Pocket Pilots shows influence by <em>company</em>, never by pilot. This form shows how much
@@ -692,6 +656,26 @@ function instructions(s: State): string[] {
       <p><b>Log</b> lists each flight this week with its net pay and the influence it added.
       <b>Airports</b> adds them up by airport. <b>Fleet</b> gives net pay and influence per hour
       for each plane, over the last 7 days and, for pay, its whole life as the game counts it.</p>`,
+    `<h3>Marks and columns</h3>
+      <dl class="marks">
+        <dt><span class="mark">+?</span></dt><dd>Flights from another device whose influence isn’t
+        known yet, or, on Fleet, landings left out because their influence or flight time isn’t.</dd>
+        <dt><span class="mark">*</span></dt><dd>Flown on another device, from the landing log. Its net
+        pay isn’t known.</dd>
+        <dt><span class="mark">≈</span></dt><dd>Shares a rise with a teammate: the landing log’s even
+        split, a guess. Not in the Log’s total.</dd>
+        <dt><span class="mark">cap</span></dt><dd>Only part of the pay counted: your weekly limit there.</dd>
+        <dt>?</dt><dd>Influence not measured.</dd>
+        <dt>N/C</dt><dd>Counts for no one: a helipad or seaplane base.</dd>
+        <dt>—</dt><dd>Not known, or too few hours to say.</dd>
+        <dt>Net</dt><dd>The landing report’s total. <b>Infl.</b>: the base pay that counted.</dd>
+        <dt>Hours</dt><dd>On Fleet, the hours flown in the last 7 days, or since the Pocket
+        Kneeboard began to note your fleet. <b>Net/h</b> is net pay over them.</dd>
+        <dt>Infl./h</dt><dd>Influence of a plane’s landings, yours and with a landing log your
+        teammates’, over those flights’ hours.</dd>
+        <dt>Life</dt><dd>The game’s own figure: net pay over hours, or for a company plane over
+        hours on paid jobs.</dd>
+      </dl>`,
     `<h3>Paperwork Reduction Act notice</h3>
       <p class="small">This form is kept only in your browser. It reads your callsign, company,
       position, active job, landing counts, planes and company from the game’s save, never your
@@ -740,7 +724,7 @@ function backupForm(): string {
 
 function settings(s: State): string[] {
   const zoom = zoomOf(s);
-  const head = (i: number) => formHead(`Settings${i ? ' (continued)' : ''}`, `Preferences for ${FORM}`, 'Keep with<br>the form');
+  const head = () => formHead('Settings', `Preferences for ${FORM}`, 'Keep with<br>the form');
   return flow(head, 'instr settings', [
     `<h3>Print size</h3>
       <div class="size">
@@ -770,27 +754,87 @@ let probe: HTMLElement | undefined;
  * `head(i)` is sheet i's heading; `cls` the class of the box around the sections.
  */
 function flow(head: (i: number) => string, cls: string, sections: string[]): string[] {
+  const page = (i: number, parts: string[]) => `${head(i)}<div class="${cls}">${parts.join('')}</div><div class="grow"></div>`;
+  const sheets: string[][] = [[]];
+  for (const part of sections) {
+    const cur = sheets.at(-1)!;
+    if (cur.length && !fits(page(sheets.length - 1, [...cur, part]))) sheets.push([part]);
+    else cur.push(part);
+  }
+  return sheets.map((parts, i) => page(i, parts));
+}
+
+/**
+ * Whether `html` fits on a sheet, with room for the footer, measured on
+ * a hidden sheet of the same size and print size.
+ */
+function fits(html: string): boolean {
   probe ??= Object.assign(document.body.appendChild(document.createElement('div')), {
     className: 'board probe',
     innerHTML: '<div class="stack"><section class="sheet"></section></div><nav class="tabs"></nav>',
   });
   probe.setAttribute('aria-hidden', 'true');
   const sheet = probe.querySelector<HTMLElement>('.sheet')!;
-  const page = (i: number, parts: string[]) => `${head(i)}<div class="${cls}">${parts.join('')}</div><div class="grow"></div>`;
-  // The footer and corners take room at the bottom of every sheet.
-  const fits = (i: number, parts: string[]) => {
-    sheet.innerHTML = page(i, parts) + leaf('probe', '', 1, 3) + footer(9, 9);
-    return sheet.scrollHeight <= sheet.clientHeight;
-  };
-  const sheets: string[][] = [[]];
-  for (const part of sections) {
-    const cur = sheets.at(-1)!;
-    if (cur.length && !fits(sheets.length - 1, [...cur, part])) sheets.push([part]);
-    else cur.push(part);
-  }
+  sheet.innerHTML = html + footer(9, 9);
+  const ok = sheet.scrollHeight <= sheet.clientHeight;
   sheet.innerHTML = '';
-  return sheets.map((parts, i) => page(i, parts));
+  return ok;
 }
+
+/**
+ * Lays a list out on as many sheets as it needs. `sheet(chunk, i, last, lines)` draws sheet i: a
+ * table of its rows and blank lines up to `lines`, and under it the remarks, which every sheet
+ * repeats. Each sheet takes as many rows as fit (at least one), and fills the rest with blank
+ * lines. Only the last sheet has the totals, so it's measured as the last.
+ * `apart(a, b)` says whether a sheet may end between rows a and b, such as a heading and its
+ * first row: when not, the sheet ends sooner.
+ */
+function listSheets<T>(
+  rows: T[],
+  sheet: (chunk: T[], i: number, last: boolean, lines: number) => string,
+  apart: (a: T, b: T) => boolean = () => true,
+): string[] {
+  const out: string[] = [];
+  let rest = rows;
+  do {
+    const i = out.length;
+    const take = (n: number) => rest.slice(0, n);
+    let n = most(1, rest.length, (k) => fits(sheet(take(k), i, k === rest.length, k)));
+    for (let k = n; k > 1 && k < rest.length; k--) {
+      if (apart(rest[k - 1]!, rest[k]!)) {
+        n = k;
+        break;
+      }
+    }
+    const chunk = take(n);
+    rest = rest.slice(n);
+    const last = !rest.length;
+    const lines = most(chunk.length, chunk.length + MAX_BLANK_LINES, (k) => fits(sheet(chunk, i, last, k)));
+    out.push(sheet(chunk, i, last, lines));
+  } while (rest.length);
+  return out;
+}
+
+/** The largest n from lo to hi for which ok(n) holds, given that it holds up to some point; lo if none. */
+function most(lo: number, hi: number, ok: (n: number) => boolean): number {
+  if (hi <= lo) return Math.max(lo, hi);
+  if (ok(hi)) return hi;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ok(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** `n` blank ruled lines of a table `cols` wide. */
+const blankRows = (n: number, cols: number) => `<tr class="blank">${'<td></td>'.repeat(cols)}</tr>`.repeat(Math.max(0, n));
+
+/**
+ * A list's remarks, under its table on each of its sheets, with as many ruled lines as they fill.
+ * The table stretches to take the sliver its whole lines leave, so they end above the footer.
+ */
+const remarksBox = (remark: string) => `<div class="row remarks-row">${box('R', 'Remarks', remark, 'remarks ruled')}</div>`;
 
 // --- The clipboard ----------------------------------------------------------------------------
 
@@ -826,8 +870,8 @@ function pages(s: State, now: number): Page[] {
 /**
  * Turning a tab's sheets: "prev" or "next" scribbled in pen near the bottom corner, with an arrow
  * that runs out and arcs down onto the sheet's curled corner. Word, arrow and curl are one link, so hovering
- * any of them lifts the corner. None on a single sheet. The strip they sit over is kept free
- * above the footer, so the footer keeps its width.
+ * any of them lifts the corner. None on a single sheet. They're drawn over the sheet just above
+ * the footer, mostly in its blank margin, and take no room.
  */
 function leaf(tab: string, label: string, i: number, n: number) {
   if (n < 2) return '';

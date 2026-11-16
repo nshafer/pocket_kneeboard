@@ -612,7 +612,7 @@ button {
 }
 .hw.remark {
   white-space: normal;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 .hw.circled {
@@ -720,10 +720,17 @@ button {
   font-size: 12px;
 }
 
+/* Every sheet keeps a small blank margin above its footer, where "next" or "prev" is scribbled. */
+/* The form's number in a heading wraps as a whole, never at its hyphen. */
+.form-no {
+  white-space: nowrap;
+}
+
 footer {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  margin-top: 10px;
   padding-top: 3px;
   border-top: 1px solid var(--ink);
   font-size: 7px;
@@ -738,19 +745,19 @@ footer span {
 footer span:last-child {
   flex: none;
 }
-/* Turning a tab's sheets. The strip above the footer stays free for the scribbled "next" or
-   "prev", whose arrow arcs down onto the curled corner (see leaf() in main.ts). The word, the
-   arrow and the curl are one button, placed against the sheet's bottom corners. */
+/* Turning a tab's sheets: "next" or "prev" scribbled just above the footer, with an arrow that
+   arcs down onto the curled corner (see leaf() in main.ts). The word, the arrow
+   and the curl are one button against the sheet's bottom corners. Like pen on a printed sheet, it
+   takes no room: every sheet lays out the same, paged or not. */
 .leaf {
-  height: 24px;
-  margin-top: 2px;
+  height: 0;
 }
 .turn {
   color: var(--pen);
 }
 .scribble {
   position: absolute;
-  bottom: 26px;
+  bottom: 15px;
   z-index: 2;
   width: 74px;
   height: 22px;
@@ -835,6 +842,11 @@ footer span:last-child {
   border-collapse: collapse;
   table-layout: fixed;
 }
+/* A list's table takes the sliver of the sheet that its whole lines leave, so the remarks under it
+   end at the same place on every sheet. */
+.ledger:has(+ .remarks-row) {
+  flex: 1;
+}
 .ledger caption {
   caption-side: top;
   text-align: right;
@@ -914,8 +926,14 @@ footer span:last-child {
   background: var(--graphite);
 }
 
+/* A list's remarks: as many ruled lines as they fill, one at least. */
 .remarks-row {
+  --ruled: 19px;
   margin-top: 6px;
+}
+.remarks-row .val {
+  min-height: var(--ruled);
+  overflow: visible;
 }
 
 
@@ -948,6 +966,19 @@ footer span:last-child {
 .instr .small {
   font-size: 9px;
 }
+/* Marks and columns: each one, then what it means. */
+.instr dl.marks {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+.instr dl.marks dt {
+  font-weight: 700;
+}
+.instr dl.marks dd {
+  margin: 0;
+}
 .log-form {
   display: flex;
   gap: 4px;
@@ -972,6 +1003,11 @@ footer span:last-child {
   background: var(--shade);
   color: var(--ink);
   cursor: pointer;
+}
+/* A table's mark where Help explains it, red as in the table. */
+.mark {
+  color: var(--stamp);
+  font-weight: 700;
 }
 .ledger sup.q {
   font-size: 8px;
@@ -1149,7 +1185,7 @@ footer span:last-child {
 
 /* --- Remarks -------------------------------------------------------------------------------- */
 
-/* Each part's remarks: four ruled lines. Schedule A's take whatever room is left on the page. */
+/* Each part's remarks: four ruled lines. */
 .row.grow {
   min-height: 22px;
 }
@@ -1167,7 +1203,7 @@ footer span:last-child {
 }
 /* One remark per line, so a long remark ends in "…" instead of wrapping out of sight. */
 .row.notes {
-  --ruled: 20px;
+  --ruled: 18px;
 }
 .row.notes .val {
   flex: none;
@@ -1184,7 +1220,7 @@ footer span:last-child {
 }
 .ruled .hw.remark {
   display: block;
-  font-size: 18px;
+  font-size: 15px;
   line-height: var(--ruled, 22px);
   transform: rotate(var(--r, 0deg));
   transform-origin: left;
