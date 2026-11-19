@@ -2,6 +2,14 @@
 
 All notable changes to Pocket Kneeboard. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.3.1 (2026-11-19)
+
+### Fixed
+
+- After the game's latest update, a job with a detour picked on the job board showed its time with
+  "via" and the detour's name tacked on, on the Flight page's "Job here" line. It shows just the
+  time again.
+
 ## 0.3.0 (2026-11-16)
 
 ### Added
