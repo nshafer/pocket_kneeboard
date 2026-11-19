@@ -224,9 +224,12 @@ export function boardButtonRoundTrip(text: string): string | undefined {
   return /^Fly to (.+?) &(?: b(?:a(?:ck?)?)?)?…?$/.exec(text)?.[1];
 }
 
-/** The job board's main button, second line: "$11,734 · 45m". */
+/**
+ * The job board's main button, second line: "$11,734 · 45m". With a detour picked (game build of
+ * 2026-11-19) it ends in " · via Big Ben", which is not part of the time.
+ */
 export function boardButtonJob(text: string): { pay: number; time?: string } | undefined {
-  const m = /^\$([\d,]+)(?: · (.+))?$/.exec(text);
+  const m = /^\$([\d,]+)(?: · (.+?))?(?: · via .+)?$/.exec(text);
   return m ? { pay: Number(m[1]!.replace(/,/g, '')), time: m[2] } : undefined;
 }
 

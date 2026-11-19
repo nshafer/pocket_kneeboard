@@ -123,6 +123,7 @@ describe('replies', () => {
     expect(boardButtonRoundTrip('Fly to EGNM')).toBeUndefined();
     expect(boardButtonRoundTrip('Fly to Supply sh…')).toBeUndefined();
     expect(boardButtonJob('$11,734 · 45m')).toEqual({ pay: 11_734, time: '45m' });
+    expect(boardButtonJob('$11,734 · 45m · via Big Ben')).toEqual({ pay: 11_734, time: '45m' });
     expect(boardButtonJob('+')).toBeUndefined();
     expect(cardButtonJob('Fly it · $3,375 · 32m')).toEqual({ pay: 3_375, time: '32m' });
     expect(cardButtonJob('Fly it · $3,375 · 2 legs')).toEqual({ pay: 3_375, time: '2 legs' });
